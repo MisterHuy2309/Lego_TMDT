@@ -1,0 +1,233 @@
+// prisma/schema.prisma
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+generator dbml {
+  provider = "prisma-dbml-generator"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ==========================================
+// MODELS FOR LEGO E-COMMERCE SYSTEM
+// ==========================================
+
+model users {
+  id            String   @id @default(uuid())
+  email         String   @unique
+  password_hash String
+  full_name     String
+  phone         String?
+  avatar_url    String?
+  role          String   @default("CLIENT") // 'ADMIN', 'CLIENT'
+  created_at    DateTime @default(now())
+
+  // Relations
+  addresses  addresses[]
+  cart_items cart_items[]
+  orders     orders[]
+  reviews    reviews[]
+}
+
+model addresses {
+  id             String  @id @default(uuid())
+  user_id        String
+  recipient_name String
+  phone          String
+  street         String?
+  ward           String?
+  district       String?
+  city           String?
+  is_default     Boolean @default(false)
+
+  // Relations
+  user   users    @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  orders orders[]
+}
+
+model categories {
+  id        String  @id @default(uuid())
+  name      String
+  slug      String  @unique
+  parent_id String?
+  image_url String?
+
+  // Relations (Self-relation cho Danh mục Cha/Con)
+  parent   categories?  @relation("CategoryParent", fields: [parent_id], references: [id], onDelete: SetNull)
+  children categories[] @relation("CategoryParent")
+  products products[]
+}
+
+model products {
+  id          String   @id @default(uuid())
+  category_id String?
+  name        String
+  slug        String   @unique
+  description String?  @db.Text
+  item_number String? // Mã bộ Lego (VD: 75313)
+  piece_count Int? // Số lượng mảnh ghép
+  min_age     Int? // Độ tuổi khuyến nghị
+  base_price  Decimal  @db.Decimal(10, 2)
+  rating_avg  Decimal  @default(0) @db.Decimal(3, 2)
+  created_at  DateTime @default(now())
+
+  // Relations
+  category       categories?      @relation(fields: [category_id], references: [id], onDelete: SetNull)
+  product_images product_images[]
+  product_skus   product_skus[]
+  reviews        reviews[]
+}
+
+model product_images {
+  id         String  @id @default(uuid())
+  product_id String
+  image_url  String
+  is_primary Boolean @default(false)
+
+  // Relations
+  product products @relation(fields: [product_id], references: [id], onDelete: Cascade)
+}
+
+model product_skus {
+  id             String  @id @default(uuid())
+  product_id     String
+  sku_code       String  @unique // Mã kho/SKU
+  box_condition  String? // Tình trạng hộp: NEW, MOP, UNBOX...
+  price          Decimal @db.Decimal(10, 2)
+  stock_quantity Int     @default(0)
+
+  // Relations
+  product     products      @relation(fields: [product_id], references: [id], onDelete: Cascade)
+  cart_items  cart_items[]
+  order_items order_items[]
+}
+
+model cart_items {
+  id         String   @id @default(uuid())
+  user_id    String
+  sku_id     String
+  quantity   Int      @default(1)
+  updated_at DateTime @default(now()) @updatedAt
+
+  // Relations
+  user users        @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  sku  product_skus @relation(fields: [sku_id], references: [id], onDelete: Cascade)
+}
+
+model discounts {
+  id              String    @id @default(uuid())
+  code            String    @unique // Ví dụ: LEGO10K, SUMMERSALE
+  description     String?
+  discount_type   String    // 'FIXED_AMOUNT' (Giảm cố định) hoặc 'PERCENTAGE' (Giảm %)
+  discount_value  Decimal   @db.Decimal(10, 2) // Giá trị giảm (Ví dụ: 50000 hoặc 10)
+  min_order_value Decimal   @default(0) @db.Decimal(10, 2) // Giá trị đơn hàng tối thiểu
+  max_discount    Decimal?  @db.Decimal(10, 2) // Số tiền giảm tối đa (cho loại PERCENTAGE)
+  usage_limit     Int?      // Số lượt sử dụng tối đa
+  used_count      Int       @default(0) // Số lượt đã dùng
+  start_date      DateTime
+  end_date        DateTime
+  is_active       Boolean   @default(true)
+  created_at      DateTime  @default(now())
+
+  // Relations
+  orders orders[]
+}
+
+model orders {
+  id              String   @id @default(uuid())
+  user_id         String
+  address_id      String
+  discount_id     String?  // Mã giảm giá áp dụng (nếu có)
+  order_code      String   @unique
+  status          String   @default("PENDING") // PENDING, PROCESSING, SHIPPED, DELIVERED, CANCELLED
+  total_amount    Decimal  @db.Decimal(10, 2)
+  discount_amount Decimal  @default(0) @db.Decimal(10, 2) // Số tiền đã giảm
+  shipping_fee    Decimal  @default(0) @db.Decimal(10, 2)
+  payment_method  String // COD, VNPAY, ZALOPAY
+  created_at      DateTime @default(now())
+
+  // Relations
+  user        users        @relation(fields: [user_id], references: [id], onDelete: Restrict)
+  address     addresses    @relation(fields: [address_id], references: [id], onDelete: Restrict)
+  discount    discounts?   @relation(fields: [discount_id], references: [id], onDelete: SetNull)
+  order_items order_items[]
+  payments    payments[]
+}
+
+model order_items {
+  id                String  @id @default(uuid())
+  order_id          String
+  sku_id            String
+  price_at_purchase Decimal @db.Decimal(10, 2)
+  quantity          Int
+
+  // Relations
+  order   orders       @relation(fields: [order_id], references: [id], onDelete: Cascade)
+  sku     product_skus @relation(fields: [sku_id], references: [id], onDelete: Restrict)
+  reviews reviews[]
+}
+
+model payments {
+  id               String    @id @default(uuid())
+  order_id         String
+  provider         String    // 'COD', 'VNPAY', 'ZALOPAY'
+  payment_method   String?   // 'COD', 'QR_CODE', 'ATM_CARD', 'CREDIT_CARD'
+  amount           Decimal   @db.Decimal(10, 2)
+  currency         String    @default("VND")
+  status           String    @default("PENDING") // 'PENDING', 'SUCCESS', 'FAILED', 'REFUNDED'
+  transaction_code String?
+  failure_reason   String?   @db.Text
+  paid_at          DateTime?
+  created_at       DateTime  @default(now())
+  updated_at       DateTime  @updatedAt
+
+  // Relations
+  order   orders    @relation(fields: [order_id], references: [id], onDelete: Cascade)
+  refunds refunds[]
+}
+
+model refunds {
+  id           String    @id @default(uuid())
+  payment_id   String
+  amount       Decimal   @db.Decimal(10, 2)
+  status       String    @default("PENDING") // 'PENDING', 'SUCCESS', 'FAILED'
+  refund_code  String?   @unique
+  reason       String?   @db.Text
+  created_at   DateTime  @default(now())
+  completed_at DateTime?
+
+  // Relations
+  payment payments @relation(fields: [payment_id], references: [id], onDelete: Cascade)
+}
+
+model reviews {
+  id            String   @id @default(uuid())
+  user_id       String
+  product_id    String
+  order_item_id String
+  rating        Int // Từ 1 đến 5 sao
+  comment       String?  @db.Text
+  created_at    DateTime @default(now())
+
+  // Relations
+  user       users       @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  product    products    @relation(fields: [product_id], references: [id], onDelete: Cascade)
+  order_item order_items @relation(fields: [order_item_id], references: [id], onDelete: Cascade)
+  media      review_media[]
+}
+
+model review_media {
+  id         String   @id @default(uuid())
+  review_id  String
+  media_url  String
+  media_type String   // 'IMAGE' hoặc 'VIDEO'
+  created_at DateTime @default(now())
+
+  // Relations
+  review reviews @relation(fields: [review_id], references: [id], onDelete: Cascade)
+}

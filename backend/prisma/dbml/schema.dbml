@@ -1,0 +1,226 @@
+//// ------------------------------------------------------
+//// THIS FILE WAS AUTOMATICALLY GENERATED (DO NOT MODIFY)
+//// ------------------------------------------------------
+
+Table users {
+  id String [pk]
+  email String [unique, not null]
+  password_hash String [not null]
+  full_name String [not null]
+  phone String
+  avatar_url String
+  role String [not null, default: 'CLIENT']
+  created_at DateTime [default: `now()`, not null]
+  addresses addresses [not null]
+  cart_items cart_items [not null]
+  orders orders [not null]
+  reviews reviews [not null]
+}
+
+Table addresses {
+  id String [pk]
+  user_id String [not null]
+  recipient_name String [not null]
+  phone String [not null]
+  street String
+  ward String
+  district String
+  city String
+  is_default Boolean [not null, default: false]
+  user users [not null]
+  orders orders [not null]
+}
+
+Table categories {
+  id String [pk]
+  name String [not null]
+  slug String [unique, not null]
+  parent_id String
+  image_url String
+  parent categories
+  children categories [not null]
+  products products [not null]
+}
+
+Table products {
+  id String [pk]
+  category_id String
+  name String [not null]
+  slug String [unique, not null]
+  description String
+  item_number String
+  piece_count Int
+  min_age Int
+  base_price Decimal [not null]
+  rating_avg Decimal [not null, default: 0]
+  created_at DateTime [default: `now()`, not null]
+  category categories
+  product_images product_images [not null]
+  product_skus product_skus [not null]
+  reviews reviews [not null]
+}
+
+Table product_images {
+  id String [pk]
+  product_id String [not null]
+  image_url String [not null]
+  is_primary Boolean [not null, default: false]
+  product products [not null]
+}
+
+Table product_skus {
+  id String [pk]
+  product_id String [not null]
+  sku_code String [unique, not null]
+  box_condition String
+  price Decimal [not null]
+  stock_quantity Int [not null, default: 0]
+  product products [not null]
+  cart_items cart_items [not null]
+  order_items order_items [not null]
+}
+
+Table cart_items {
+  id String [pk]
+  user_id String [not null]
+  sku_id String [not null]
+  quantity Int [not null, default: 1]
+  updated_at DateTime [default: `now()`, not null]
+  user users [not null]
+  sku product_skus [not null]
+}
+
+Table discounts {
+  id String [pk]
+  code String [unique, not null]
+  description String
+  discount_type String [not null]
+  discount_value Decimal [not null]
+  min_order_value Decimal [not null, default: 0]
+  max_discount Decimal
+  usage_limit Int
+  used_count Int [not null, default: 0]
+  start_date DateTime [not null]
+  end_date DateTime [not null]
+  is_active Boolean [not null, default: true]
+  created_at DateTime [default: `now()`, not null]
+  orders orders [not null]
+}
+
+Table orders {
+  id String [pk]
+  user_id String [not null]
+  address_id String [not null]
+  discount_id String
+  order_code String [unique, not null]
+  status String [not null, default: 'PENDING']
+  total_amount Decimal [not null]
+  discount_amount Decimal [not null, default: 0]
+  shipping_fee Decimal [not null, default: 0]
+  payment_method String [not null]
+  created_at DateTime [default: `now()`, not null]
+  user users [not null]
+  address addresses [not null]
+  discount discounts
+  order_items order_items [not null]
+  payments payments [not null]
+}
+
+Table order_items {
+  id String [pk]
+  order_id String [not null]
+  sku_id String [not null]
+  price_at_purchase Decimal [not null]
+  quantity Int [not null]
+  order orders [not null]
+  sku product_skus [not null]
+  reviews reviews [not null]
+}
+
+Table payments {
+  id String [pk]
+  order_id String [not null]
+  provider String [not null]
+  payment_method String
+  amount Decimal [not null]
+  currency String [not null, default: 'VND']
+  status String [not null, default: 'PENDING']
+  transaction_code String
+  failure_reason String
+  paid_at DateTime
+  created_at DateTime [default: `now()`, not null]
+  updated_at DateTime [not null]
+  order orders [not null]
+  refunds refunds [not null]
+}
+
+Table refunds {
+  id String [pk]
+  payment_id String [not null]
+  amount Decimal [not null]
+  status String [not null, default: 'PENDING']
+  refund_code String [unique]
+  reason String
+  created_at DateTime [default: `now()`, not null]
+  completed_at DateTime
+  payment payments [not null]
+}
+
+Table reviews {
+  id String [pk]
+  user_id String [not null]
+  product_id String [not null]
+  order_item_id String [not null]
+  rating Int [not null]
+  comment String
+  created_at DateTime [default: `now()`, not null]
+  user users [not null]
+  product products [not null]
+  order_item order_items [not null]
+  media review_media [not null]
+}
+
+Table review_media {
+  id String [pk]
+  review_id String [not null]
+  media_url String [not null]
+  media_type String [not null]
+  created_at DateTime [default: `now()`, not null]
+  review reviews [not null]
+}
+
+Ref: addresses.user_id > users.id [delete: Cascade]
+
+Ref: categories.parent_id - categories.id [delete: Set Null]
+
+Ref: products.category_id > categories.id [delete: Set Null]
+
+Ref: product_images.product_id > products.id [delete: Cascade]
+
+Ref: product_skus.product_id > products.id [delete: Cascade]
+
+Ref: cart_items.user_id > users.id [delete: Cascade]
+
+Ref: cart_items.sku_id > product_skus.id [delete: Cascade]
+
+Ref: orders.user_id > users.id [delete: Restrict]
+
+Ref: orders.address_id > addresses.id [delete: Restrict]
+
+Ref: orders.discount_id > discounts.id [delete: Set Null]
+
+Ref: order_items.order_id > orders.id [delete: Cascade]
+
+Ref: order_items.sku_id > product_skus.id [delete: Restrict]
+
+Ref: payments.order_id > orders.id [delete: Cascade]
+
+Ref: refunds.payment_id > payments.id [delete: Cascade]
+
+Ref: reviews.user_id > users.id [delete: Cascade]
+
+Ref: reviews.product_id > products.id [delete: Cascade]
+
+Ref: reviews.order_item_id > order_items.id [delete: Cascade]
+
+Ref: review_media.review_id > reviews.id [delete: Cascade]

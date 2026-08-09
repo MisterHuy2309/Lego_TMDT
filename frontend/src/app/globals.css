@@ -1,0 +1,10 @@
+@import "tailwindcss";
+
+/* 🟢 Bổ sung cấu hình để Tailwind nhận biết class .dark */
+@custom-variant dark (&:where(.dark, .dark *));
+
+@layer base {
+  body {
+    @apply bg-slate-50 text-slate-800 antialiased;
+  }
+}
