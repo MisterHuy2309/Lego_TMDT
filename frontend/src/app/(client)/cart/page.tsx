@@ -40,15 +40,13 @@ export default function CartPage() {
 
   // 🟢 4. Hàm trích xuất Stock (Tồn kho) cực kỳ chính xác
   const getItemStock = (item: any): number => {
-    // Soi dữ liệu thực tế ở Console F12
-    console.log('📦 Item dữ liệu trong giỏ:', item);
-
     const stockCandidate =
       item.sku?.stock ??
       item.product?.stock ??
       item.sku?.product?.stock ??
       item.stock ??
-      item.product_stock;
+      item.product_stock ??
+      item.sku?.stock_quantity;
 
     if (typeof stockCandidate !== 'undefined' && stockCandidate !== null) {
       return Number(stockCandidate);
@@ -110,6 +108,14 @@ export default function CartPage() {
           {/* Danh Sách Món Hàng */}
           <div className="lg:col-span-2 space-y-4">
             {items.map((item) => {
+              // 🟢 Lấy ID chuẩn của Cart Item (bắt sạch các khả năng từ backend)
+              const itemId =
+                item.id ||
+                (item as any).cart_item_id ||
+                (item as any)._id ||
+                (item as any).cartItemId ||
+                (item as any).sku_id;
+
               const productName = getItemName(item);
               const productSlug = getItemSlug(item);
               const price = getItemPrice(item);
@@ -132,7 +138,7 @@ export default function CartPage() {
 
               return (
                 <div
-                  key={item.id}
+                  key={itemId || Math.random()}
                   className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 flex items-center gap-4"
                 >
                   <div className="w-20 h-20 bg-slate-50 rounded-xl overflow-hidden flex-shrink-0 p-1 border border-slate-100">
@@ -177,7 +183,13 @@ export default function CartPage() {
                   <div className="flex items-center border border-slate-200 rounded-xl overflow-hidden bg-white">
                     <button
                       type="button"
-                      onClick={() => updateQuantity(item.id, item.quantity - 1)}
+                      onClick={() => {
+                        if (!itemId) {
+                          console.error('❌ itemId bị undefined trong item:', item);
+                          return;
+                        }
+                        updateQuantity(itemId, item.quantity - 1);
+                      }}
                       disabled={item.quantity <= 1}
                       className="p-2 hover:bg-slate-100 disabled:opacity-20 disabled:cursor-not-allowed text-slate-600 transition"
                       title="Giảm số lượng"
@@ -192,8 +204,12 @@ export default function CartPage() {
                     <button
                       type="button"
                       onClick={() => {
+                        if (!itemId) {
+                          console.error('❌ itemId bị undefined trong item:', item);
+                          return;
+                        }
                         if (isMaxStockReached) return;
-                        updateQuantity(item.id, item.quantity + 1);
+                        updateQuantity(itemId, item.quantity + 1);
                       }}
                       disabled={isMaxStockReached}
                       className={`p-2 transition ${
@@ -207,8 +223,15 @@ export default function CartPage() {
                     </button>
                   </div>
 
+                  {/* Nút Xóa khỏi giỏ */}
                   <button
-                    onClick={() => removeItem(item.id)}
+                    onClick={() => {
+                      if (!itemId) {
+                        console.error('❌ itemId bị undefined trong item:', item);
+                        return;
+                      }
+                      removeItem(itemId);
+                    }}
                     className="p-2 text-slate-400 hover:text-red-600 transition"
                     title="Xóa khỏi giỏ hàng"
                   >

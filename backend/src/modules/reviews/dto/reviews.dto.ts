@@ -16,13 +16,14 @@ export class CreateReviewDto {
   @IsString()
   product_id!: string;
 
-  @ApiProperty({ example: 'uuid-order-item-id', description: 'ID sản phẩm trong đơn hàng đã mua' })
-  @IsNotEmpty({ message: 'Order Item ID không được để trống' })
+  // 🟢 ĐÃ CHUYỂN THÀNH OPTIONAL ĐỂ KHÔNG BẮT BUỘC PHẢI MUA HÀNG MỚI ĐƯỢC BÌNH LUẬN
+  @ApiPropertyOptional({ example: 'uuid-order-item-id', description: 'ID sản phẩm trong đơn hàng đã mua (Tùy chọn)' })
+  @IsOptional()
   @IsString()
-  order_item_id!: string;
+  order_item_id?: string;
 
   @ApiProperty({ example: 5, description: 'Số sao đánh giá (từ 1 đến 5)' })
-  @Transform(({ value }) => parseInt(value, 10))
+  @Transform(({ value }) => (value ? parseInt(value, 10) : 5))
   @IsInt({ message: 'Rating phải là số nguyên' })
   @Min(1, { message: 'Đánh giá tối thiểu là 1 sao' })
   @Max(5, { message: 'Đánh giá tối đa là 5 sao' })
@@ -34,11 +35,11 @@ export class CreateReviewDto {
   comment?: string;
 }
 
-// 2. DTO Lọc danh sách Đánh giá
+// 2. DTO Lọc danh sách Đánh giá (Public)
 export class QueryReviewDto {
   @ApiPropertyOptional({ example: 5, description: 'Lọc theo số sao (1-5)' })
   @IsOptional()
-  @Transform(({ value }) => parseInt(value, 10))
+  @Transform(({ value }) => (value ? parseInt(value, 10) : undefined))
   @IsInt()
   @Min(1)
   @Max(5)
@@ -46,24 +47,24 @@ export class QueryReviewDto {
 
   @ApiPropertyOptional({ example: 1, default: 1 })
   @IsOptional()
-  @Transform(({ value }) => parseInt(value, 10))
+  @Transform(({ value }) => (value ? parseInt(value, 10) : 1))
   @IsInt()
   @Min(1)
   page?: number = 1;
 
   @ApiPropertyOptional({ example: 10, default: 10 })
   @IsOptional()
-  @Transform(({ value }) => parseInt(value, 10))
+  @Transform(({ value }) => (value ? parseInt(value, 10) : 10))
   @IsInt()
   @Min(1)
   limit?: number = 10;
-
 }
 
+// 3. DTO Cập nhật Đánh giá
 export class UpdateReviewDto {
   @ApiPropertyOptional({ example: 4, description: 'Sửa số sao đánh giá (1-5)' })
   @IsOptional()
-  @Transform(({ value }) => parseInt(value, 10))
+  @Transform(({ value }) => (value ? parseInt(value, 10) : undefined))
   @IsInt()
   @Min(1)
   @Max(5)

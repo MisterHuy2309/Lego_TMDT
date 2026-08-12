@@ -170,13 +170,13 @@ Table reviews {
   id String [pk]
   user_id String [not null]
   product_id String [not null]
-  order_item_id String [not null]
+  order_item_id String
   rating Int [not null]
   comment String
   created_at DateTime [default: `now()`, not null]
   user users [not null]
   product products [not null]
-  order_item order_items [not null]
+  order_item order_items
   media review_media [not null]
 }
 
@@ -221,6 +221,6 @@ Ref: reviews.user_id > users.id [delete: Cascade]
 
 Ref: reviews.product_id > products.id [delete: Cascade]
 
-Ref: reviews.order_item_id > order_items.id [delete: Cascade]
+Ref: reviews.order_item_id > order_items.id [delete: Set Null]
 
 Ref: review_media.review_id > reviews.id [delete: Cascade]

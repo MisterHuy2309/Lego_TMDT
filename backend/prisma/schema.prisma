@@ -209,15 +209,20 @@ model reviews {
   id            String   @id @default(uuid())
   user_id       String
   product_id    String
-  order_item_id String
+  
+  // 🟢 ĐỔI THÀNH OPTIONAL (có dấu ?) ĐỂ CHO PHÉP NULL KHI CHƯA MUA HÀNG
+  order_item_id String?  
+  
   rating        Int // Từ 1 đến 5 sao
   comment       String?  @db.Text
   created_at    DateTime @default(now())
 
   // Relations
-  user       users       @relation(fields: [user_id], references: [id], onDelete: Cascade)
-  product    products    @relation(fields: [product_id], references: [id], onDelete: Cascade)
-  order_item order_items @relation(fields: [order_item_id], references: [id], onDelete: Cascade)
+  user       users        @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  product    products     @relation(fields: [product_id], references: [id], onDelete: Cascade)
+  
+  // 🟢 ĐỔI THÀNH OPTIONAL VÀ ĐỔI ON DELETE THÀNH SetNull (NẾU XÓA ĐƠN HÀNG THÌ BÌNH LUẬN VẪN CÒN)
+  order_item order_items? @relation(fields: [order_item_id], references: [id], onDelete: SetNull)
   media      review_media[]
 }
 
