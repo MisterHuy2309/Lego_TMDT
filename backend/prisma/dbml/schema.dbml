@@ -11,6 +11,8 @@ Table users {
   avatar_url String
   role String [not null, default: 'CLIENT']
   created_at DateTime [default: `now()`, not null]
+  admin_pin String
+  revenue_backups revenue_backups [not null]
   addresses addresses [not null]
   cart_items cart_items [not null]
   orders orders [not null]
@@ -189,6 +191,18 @@ Table review_media {
   review reviews [not null]
 }
 
+Table revenue_backups {
+  id String [pk]
+  backup_code String [unique, not null]
+  total_revenue Decimal [not null]
+  total_orders Int [not null]
+  backup_data Json [not null]
+  created_by String [not null]
+  created_at DateTime [default: `now()`, not null]
+  expires_at DateTime [not null]
+  admin users [not null]
+}
+
 Ref: addresses.user_id > users.id [delete: Cascade]
 
 Ref: categories.parent_id - categories.id [delete: Set Null]
@@ -224,3 +238,5 @@ Ref: reviews.product_id > products.id [delete: Cascade]
 Ref: reviews.order_item_id > order_items.id [delete: Set Null]
 
 Ref: review_media.review_id > reviews.id [delete: Cascade]
+
+Ref: revenue_backups.created_by > users.id [delete: Cascade]

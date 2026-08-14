@@ -19,7 +19,6 @@ async function bootstrap() {
     credentials: true,
   });
 
-  // 🟢 DÙNG process.cwd() ĐỂ ĐẢM BẢO TRỎ ĐÚNG THƯ MỤC UPLOADS Ở GỐC PROJECT
   app.useStaticAssets(join(process.cwd(), 'uploads'), {
     prefix: '/uploads/',
   });

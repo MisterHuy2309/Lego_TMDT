@@ -5,9 +5,11 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/store/useAuthStore';
 import { useAdminStore } from '@/store/useAdminStore';
+import { adminOrdersService, AdminOrder, AdminOrderItem } from '@/services/adminOrders.service';
 import { categoriesService, Category } from '@/services/categories.service';
 import { productsService, CreateProductDto } from '@/services/products.service';
 import { Product } from '@/types/product.type';
+import AdminSettingsPage from '@/app/admin/settings/page'; // 🟢 Import trang cài đặt trực tiếp
 import { 
   Package, 
   ShoppingBag, 
@@ -21,7 +23,6 @@ import {
   Trash2, 
   Ban, 
   CheckCircle2, 
-  TrendingUp,
   Sun, 
   Moon, 
   Edit2, 
@@ -30,7 +31,11 @@ import {
   Image as ImageIcon, 
   Upload, 
   Link as LinkIcon,
-  Menu
+  Menu,
+  Clock,
+  Truck,
+  XCircle,
+  Settings // 🟢 Icon Cài Đặt Hệ Thống
 } from 'lucide-react';
 
 export default function AdminPage() {
@@ -43,14 +48,20 @@ export default function AdminPage() {
   // Mobile Sidebar State
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
-  // Tab & Theme States
-  const [activeTab, setActiveTab] = useState<'overview' | 'products' | 'categories' | 'users' | 'vouchers' | 'comments'>('overview');
+  // Tab & Theme States (🟢 Thêm 'settings' vào Union Type)
+  const [activeTab, setActiveTab] = useState<'overview' | 'products' | 'categories' | 'users' | 'vouchers' | 'comments' | 'settings'>('overview');
   const [darkMode, setDarkMode] = useState(true);
 
   // Database States
   const [categories, setCategories] = useState<Category[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [loadingData, setLoadingData] = useState(false);
+
+  // Orders & Revenue Realtime States
+  const [orders, setOrders] = useState<AdminOrder[]>([]);
+  const [totalRevenue, setTotalRevenue] = useState<number>(0);
+  const [loadingOrders, setLoadingOrders] = useState(false);
+  const [updatingOrderId, setUpdatingOrderId] = useState<string | null>(null);
 
   // Zustand Store
   const { 
@@ -134,6 +145,7 @@ export default function AdminPage() {
 
     setCheckingAuth(false);
     loadAllData();
+    loadOrdersData();
   }, [user, token, router]);
 
   const loadAllData = async () => {
@@ -149,6 +161,33 @@ export default function AdminPage() {
       console.error('Lỗi tải dữ liệu:', err);
     } finally {
       setLoadingData(false);
+    }
+  };
+
+  // Load Đơn hàng & Doanh thu thực tế từ Backend
+  const loadOrdersData = async () => {
+    try {
+      setLoadingOrders(true);
+      const res = await adminOrdersService.getAllOrders();
+      setOrders(res.orders || []);
+      setTotalRevenue(res.total_revenue || 0);
+    } catch (err) {
+      console.error('Lỗi tải đơn hàng:', err);
+    } finally {
+      setLoadingOrders(false);
+    }
+  };
+
+  // Cập nhật trạng thái đơn hàng
+  const handleUpdateOrderStatus = async (orderId: string, newStatus: string) => {
+    setUpdatingOrderId(orderId);
+    try {
+      await adminOrdersService.updateStatus(orderId, newStatus);
+      await loadOrdersData();
+    } catch (err: any) {
+      alert(err.response?.data?.message || 'Không thể cập nhật trạng thái đơn hàng!');
+    } finally {
+      setUpdatingOrderId(null);
     }
   };
 
@@ -331,7 +370,7 @@ export default function AdminPage() {
     );
   }
 
-  // Component Nội dung Navigation Sidebar
+  // 🟢 Component Navigation Sidebar (Bổ sung menu Cài Đặt Hệ Thống)
   const NavigationContent = () => (
     <div className="flex flex-col justify-between h-full">
       <div>
@@ -360,6 +399,8 @@ export default function AdminPage() {
             { id: 'users', label: 'Quản Lý Khách Hàng', icon: Users },
             { id: 'vouchers', label: 'Quản Lý Mã Giảm Giá', icon: Tag },
             { id: 'comments', label: 'Quản Lý Bình Luận', icon: MessageSquare },
+            // 🟢 THÊM MỤC CÀI ĐẶT HỆ THỐNG VÀO SIDEBAR
+            { id: 'settings', label: 'Cài Đặt Hệ Thống', icon: Settings },
           ].map((tab) => {
             const Icon = tab.icon;
             return (
@@ -367,7 +408,7 @@ export default function AdminPage() {
                 key={tab.id}
                 onClick={() => {
                   setActiveTab(tab.id as any);
-                  setMobileMenuOpen(false); // Đóng menu mobile khi chọn tab
+                  setMobileMenuOpen(false);
                 }}
                 className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition ${
                   activeTab === tab.id 
@@ -441,39 +482,194 @@ export default function AdminPage() {
       <main className="flex-grow p-4 md:p-8 overflow-y-auto">
         <div className="max-w-6xl mx-auto space-y-6 md:space-y-8">
 
-          {/* TAB 1: BẢNG DOANH THU */}
+          {/* 🟢 TAB 1: BẢNG DOANH THU & DUYỆT ĐƠN HÀNG REALTIME */}
           {activeTab === 'overview' && (
-            <div className="space-y-6">
-              <h1 className="text-xl md:text-2xl font-black text-slate-800 dark:text-white">Thống Kê Doanh Thu System</h1>
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 md:gap-6">
-                <div className="bg-white dark:bg-slate-800/60 p-5 md:p-6 rounded-2xl border border-slate-200 dark:border-slate-700/60 flex items-center gap-4 shadow-sm">
-                  <div className="p-3 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 rounded-xl">
-                    <DollarSign className="w-7 h-7" />
+            <div className="space-y-8">
+              <div>
+                <h1 className="text-xl md:text-2xl font-black text-slate-800 dark:text-white mb-4">Thống Kê Doanh Thu System</h1>
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 md:gap-6">
+                  {/* Thẻ 1: Tổng Doanh Thu (Chỉ cộng đơn DELIVERED) */}
+                  <div className="bg-white dark:bg-slate-800/60 p-5 md:p-6 rounded-2xl border border-slate-200 dark:border-slate-700/60 flex items-center gap-4 shadow-sm">
+                    <div className="p-3 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 rounded-xl">
+                      <DollarSign className="w-7 h-7" />
+                    </div>
+                    <div>
+                      <span className="text-xs text-slate-500 dark:text-slate-400 block font-medium">Tổng Doanh Thu (Đã Giao)</span>
+                      <span className="text-xl md:text-2xl font-black text-emerald-600 dark:text-emerald-400">
+                        {totalRevenue.toLocaleString('vi-VN')} đ
+                      </span>
+                    </div>
                   </div>
-                  <div>
-                    <span className="text-xs text-slate-500 dark:text-slate-400 block font-medium">Doanh Thu Tháng</span>
-                    <span className="text-xl md:text-2xl font-black text-emerald-600 dark:text-emerald-400">13.400.000 đ</span>
+
+                  {/* Thẻ 2: Đơn Giao Thành Công */}
+                  <div className="bg-white dark:bg-slate-800/60 p-5 md:p-6 rounded-2xl border border-slate-200 dark:border-slate-700/60 flex items-center gap-4 shadow-sm">
+                    <div className="p-3 bg-blue-500/10 text-blue-600 dark:text-blue-400 rounded-xl">
+                      <CheckCircle2 className="w-7 h-7" />
+                    </div>
+                    <div>
+                      <span className="text-xs text-slate-500 dark:text-slate-400 block font-medium">Đơn Giao Thành Công</span>
+                      <span className="text-xl md:text-2xl font-black text-blue-600 dark:text-blue-400">
+                        {orders.filter((o) => o.status === 'DELIVERED').length} / {orders.length} Đơn
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Thẻ 3: Đơn Chờ Xử Lý */}
+                  <div className="bg-white dark:bg-slate-800/60 p-5 md:p-6 rounded-2xl border border-slate-200 dark:border-slate-700/60 flex items-center gap-4 shadow-sm sm:col-span-2 md:col-span-1">
+                    <div className="p-3 bg-amber-500/10 text-amber-600 dark:text-amber-400 rounded-xl">
+                      <Clock className="w-7 h-7" />
+                    </div>
+                    <div>
+                      <span className="text-xs text-slate-500 dark:text-slate-400 block font-medium">Đơn Cần Xử Lý</span>
+                      <span className="text-xl md:text-2xl font-black text-amber-600 dark:text-amber-400">
+                        {orders.filter((o) => o.status === 'PENDING' || o.status === 'CONFIRMED').length} Đơn
+                      </span>
+                    </div>
                   </div>
                 </div>
+              </div>
 
-                <div className="bg-white dark:bg-slate-800/60 p-5 md:p-6 rounded-2xl border border-slate-200 dark:border-slate-700/60 flex items-center gap-4 shadow-sm">
-                  <div className="p-3 bg-blue-500/10 text-blue-600 dark:text-blue-400 rounded-xl">
-                    <TrendingUp className="w-7 h-7" />
-                  </div>
-                  <div>
-                    <span className="text-xs text-slate-500 dark:text-slate-400 block font-medium">Tăng Trưởng Mua Hàng</span>
-                    <span className="text-xl md:text-2xl font-black text-blue-600 dark:text-blue-400">+24.5%</span>
-                  </div>
+              {/* BẢNG BÀN GIAO & DUYỆT ĐƠN HÀNG THỰC TẾ */}
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <h2 className="text-lg font-bold text-slate-800 dark:text-white flex items-center gap-2">
+                    <ShoppingBag className="w-5 h-5 text-red-600" /> Quản Lý Đơn Hàng Từ Khách
+                  </h2>
+                  <button
+                    onClick={loadOrdersData}
+                    className="text-xs font-bold text-red-600 hover:underline"
+                  >
+                    Làm mới danh sách
+                  </button>
                 </div>
 
-                <div className="bg-white dark:bg-slate-800/60 p-5 md:p-6 rounded-2xl border border-slate-200 dark:border-slate-700/60 flex items-center gap-4 shadow-sm sm:col-span-2 md:col-span-1">
-                  <div className="p-3 bg-amber-500/10 text-amber-600 dark:text-amber-400 rounded-xl">
-                    <Users className="w-7 h-7" />
-                  </div>
-                  <div>
-                    <span className="text-xs text-slate-500 dark:text-slate-400 block font-medium">Khách Hàng Mới</span>
-                    <span className="text-xl md:text-2xl font-black text-amber-600 dark:text-amber-400">{users.length} Khách</span>
-                  </div>
+                <div className="bg-white dark:bg-slate-800/60 rounded-2xl border border-slate-200 dark:border-slate-700/50 p-4 shadow-sm overflow-x-auto">
+                  {loadingOrders ? (
+                    <div className="text-center py-10 text-slate-400 flex items-center justify-center gap-2">
+                      <Loader2 className="w-5 h-5 animate-spin text-red-600" /> Đang lấy danh sách đơn hàng...
+                    </div>
+                  ) : orders.length === 0 ? (
+                    <div className="text-center py-10 text-slate-400 text-sm">Chưa có đơn hàng nào trong CSDL.</div>
+                  ) : (
+                    <table className="w-full text-left text-sm min-w-[700px]">
+                      <thead className="bg-slate-100 dark:bg-slate-900/80 text-slate-600 dark:text-slate-400 uppercase text-xs">
+                        <tr>
+                          <th className="p-3">Mã Đơn</th>
+                          <th className="p-3">Khách Hàng</th>
+                          <th className="p-3">Sản Phẩm</th>
+                          <th className="p-3">Tổng Tiền</th>
+                          <th className="p-3">Trạng Thái</th>
+                          <th className="p-3 text-center">Xác Nhận Luồng</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-200 dark:divide-slate-700/50">
+                        {orders.map((order) => {
+                          const isUpdating = updatingOrderId === order.id;
+
+                          return (
+                            <tr key={order.id}>
+                              <td className="p-3 font-mono font-bold text-xs text-amber-600 dark:text-yellow-400">
+                                {order.order_code || `#${order.id.slice(0, 8)}`}
+                              </td>
+
+                              <td className="p-3">
+                                <div className="font-bold text-slate-800 dark:text-white">
+                                  {order.user?.full_name || 'Khách hàng'}
+                                </div>
+                                <div className="text-[11px] text-slate-400">{order.user?.phone || order.user?.email}</div>
+                              </td>
+
+                              <td className="p-3 text-xs text-slate-600 dark:text-slate-300 max-w-[200px]">
+                                {order.order_items && order.order_items.length > 0 ? (
+                                  order.order_items.map((it: AdminOrderItem, idx: number) => (
+                                    <div key={idx} className="truncate">
+                                      • {it.sku?.product?.name || 'Bộ Lego'} (x{it.quantity})
+                                    </div>
+                                  ))
+                                ) : (
+                                  <span className="text-slate-400">Chi tiết sản phẩm</span>
+                                )}
+                              </td>
+
+                              <td className="p-3 font-black text-red-600 dark:text-red-400 whitespace-nowrap">
+                                {Number(order.total_amount).toLocaleString('vi-VN')} đ
+                              </td>
+
+                              <td className="p-3 whitespace-nowrap">
+                                {order.status === 'PENDING' && (
+                                  <span className="bg-amber-500/10 text-amber-600 dark:text-amber-400 px-2.5 py-1 rounded-full text-xs font-bold flex items-center gap-1 w-fit">
+                                    <Clock className="w-3.5 h-3.5" /> Chờ xác nhận
+                                  </span>
+                                )}
+                                {order.status === 'CONFIRMED' && (
+                                  <span className="bg-blue-500/10 text-blue-600 dark:text-blue-400 px-2.5 py-1 rounded-full text-xs font-bold flex items-center gap-1 w-fit">
+                                    <Truck className="w-3.5 h-3.5" /> Đang giao hàng
+                                  </span>
+                                )}
+                                {order.status === 'DELIVERED' && (
+                                  <span className="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 px-2.5 py-1 rounded-full text-xs font-bold flex items-center gap-1 w-fit">
+                                    <CheckCircle2 className="w-3.5 h-3.5" /> Đã giao (+Doanh thu)
+                                  </span>
+                                )}
+                                {order.status === 'CANCELLED' && (
+                                  <span className="bg-red-500/10 text-red-600 dark:text-red-400 px-2.5 py-1 rounded-full text-xs font-bold flex items-center gap-1 w-fit">
+                                    <XCircle className="w-3.5 h-3.5" /> Đã hủy
+                                  </span>
+                                )}
+                              </td>
+
+                              {/* LUỒNG XÁC NHẬN CHUẨN */}
+                              <td className="p-3 text-center whitespace-nowrap">
+                                {isUpdating ? (
+                                  <Loader2 className="w-5 h-5 animate-spin mx-auto text-slate-400" />
+                                ) : (
+                                  <div className="flex items-center justify-center gap-2">
+                                    {order.status === 'PENDING' && (
+                                      <>
+                                        <button
+                                          onClick={() => handleUpdateOrderStatus(order.id, 'CONFIRMED')}
+                                          className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold px-3 py-1.5 rounded-xl transition shadow"
+                                        >
+                                          Xác Nhận Đơn
+                                        </button>
+                                        <button
+                                          onClick={() => handleUpdateOrderStatus(order.id, 'CANCELLED')}
+                                          className="bg-slate-200 dark:bg-slate-700 hover:bg-red-600 hover:text-white text-slate-700 dark:text-slate-300 text-xs font-bold px-3 py-1.5 rounded-xl transition"
+                                        >
+                                          Hủy Đơn
+                                        </button>
+                                      </>
+                                    )}
+
+                                    {order.status === 'CONFIRMED' && (
+                                      <>
+                                        <button
+                                          onClick={() => handleUpdateOrderStatus(order.id, 'DELIVERED')}
+                                          className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-3 py-1.5 rounded-xl transition shadow flex items-center gap-1"
+                                        >
+                                          <CheckCircle2 className="w-3.5 h-3.5" /> Xác Nhận Đã Giao
+                                        </button>
+                                        <button
+                                          onClick={() => handleUpdateOrderStatus(order.id, 'CANCELLED')}
+                                          className="bg-slate-200 dark:bg-slate-700 hover:bg-red-600 hover:text-white text-slate-700 dark:text-slate-300 text-xs font-bold px-3 py-1.5 rounded-xl transition"
+                                        >
+                                          Hủy Đơn
+                                        </button>
+                                      </>
+                                    )}
+
+                                    {(order.status === 'DELIVERED' || order.status === 'CANCELLED') && (
+                                      <span className="text-xs text-slate-400 italic">Hoàn tất xử lý</span>
+                                    )}
+                                  </div>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  )}
                 </div>
               </div>
             </div>
@@ -495,7 +691,6 @@ export default function AdminPage() {
                 </button>
               </div>
 
-              {/* Bảng bọc Container overflow-x-auto để Scroll ngang mượt trên Mobile */}
               <div className="bg-white dark:bg-slate-800/60 rounded-2xl border border-slate-200 dark:border-slate-700/50 p-2 md:p-4 shadow-sm overflow-x-auto">
                 <table className="w-full text-left text-sm min-w-[600px]">
                   <thead className="bg-slate-100 dark:bg-slate-900/80 text-slate-600 dark:text-slate-400 uppercase text-xs">
@@ -735,10 +930,17 @@ export default function AdminPage() {
             </div>
           )}
 
+          {/* 🟢 TAB 7: CÀI ĐẶT HỆ THỐNG (CÀI PIN & RESET DOANH THU) */}
+          {activeTab === 'settings' && (
+            <div className="space-y-6">
+              <AdminSettingsPage />
+            </div>
+          )}
+
         </div>
       </main>
 
-      {/* 🔴 MODAL 1: THÊM / SỬA DANH MỤC (RESPONSIVE) */}
+      {/* 🔴 MODAL 1: THÊM / SỬA DANH MỤC */}
       {showCatModal && (
         <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 w-full max-w-md rounded-3xl p-5 md:p-6 shadow-2xl space-y-4 md:space-y-5">
@@ -810,14 +1012,14 @@ export default function AdminPage() {
         </div>
       )}
 
-      {/* 🔴 MODAL 2: THÊM HOẶC SỬA SẢN PHẨM (RESPONSIVE) */}
+      {/* 🔴 MODAL 2: THÊM HOẶC SỬA SẢN PHẨM */}
       {showProdModal && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-3 md:p-4 overflow-y-auto">
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 w-full max-w-2xl rounded-3xl p-5 md:p-8 shadow-2xl space-y-5 my-auto max-h-[92vh] overflow-y-auto">
             <div className="flex justify-between items-center border-b border-slate-200 dark:border-slate-800 pb-3">
               <div>
                 <h2 className="text-lg md:text-xl font-black text-slate-800 dark:text-white">
-                  {editingProd ? 'Cập Nhật Bộ LEGO' : 'Thêm Bộ LEGO Mới Vẫn Hệ Thống'}
+                  {editingProd ? 'Cập Nhật Bộ LEGO' : 'Thêm Bộ LEGO Mới Vào Hệ Thống'}
                 </h2>
                 <p className="text-[11px] md:text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                   {editingProd ? `Đang chỉnh sửa sản phẩm ID: #${editingProd.id}` : 'Điền thông tin bộ sản phẩm, chọn danh mục & ảnh'}

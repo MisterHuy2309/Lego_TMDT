@@ -1,9 +1,23 @@
-import {BadRequestException,Body,Controller,Delete,Get,Param,Patch, Post,Put, Query,Request,UploadedFile,UseGuards,UseInterceptors,
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Put,
+  Query,
+  Request,
+  UploadedFile,
+  UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { ApiBearerAuth, ApiBody,ApiConsumes,ApiOperation, ApiTags} from '@nestjs/swagger';
-import * as fs from 'fs'; // 🟢 Import module fs để thao tác với thư mục hệ thống
+import { ApiBearerAuth, ApiBody, ApiConsumes, ApiOperation, ApiTags } from '@nestjs/swagger';
+import * as fs from 'fs';
 import { diskStorage } from 'multer';
 import { extname } from 'path';
 
@@ -16,15 +30,11 @@ import { UploadAvatarDto } from './dto/upload-avatar.dto';
 import { UsersService } from './users.service';
 
 @ApiTags('Users & Profile (Tài khoản, Địa chỉ & Quản lý Khách hàng)')
-@Controller('users') // Global prefix 'api/v1' đã được cấu hình tại main.ts
+@Controller(['api/v1/users', 'users']) // 🟢 BẮT CẢ 2 ĐƯỜNG DẪN DÙ DÙNG PREFIX HAY KHÔNG
 @ApiBearerAuth()
-@UseGuards(AuthGuard('jwt')) // 🔒 Yêu cầu Bearer Token đăng nhập cho tất cả endpoints
+@UseGuards(AuthGuard('jwt'))
 export class UsersController {
   constructor(private readonly usersService: UsersService) {}
-
-  // ==========================================
-  // SECTION 1: CÁC API DÀNH CHO CLIENT
-  // ==========================================
 
   // 👤 PROFILE
   @Get('profile')
@@ -34,16 +44,18 @@ export class UsersController {
     return this.usersService.getProfile(userId);
   }
 
+  // 🟢 Hỗ trợ cả PATCH lẫn PUT
   @Patch('profile')
+  @Put('profile')
   @ApiOperation({ summary: 'Cập nhật thông tin cá nhân & Địa chỉ nhận hàng' })
   updateProfile(@Request() req: any, @Body() dto: UpdateProfileDto) {
     const userId = req.user.id || req.user.sub;
     return this.usersService.updateProfile(userId, dto);
   }
 
-  // 🖼️ UPLOAD AVATAR TRỰC TIẾP TỪ THƯ VIỆN THIẾT BỊ
- // 🖼️ UPLOAD AVATAR TRỰC TIẾP
+  // 🖼️ UPLOAD AVATAR
   @Patch('profile/avatar')
+  @Put('profile/avatar')
   @ApiOperation({ summary: 'Tải lên ảnh đại diện trực tiếp từ thư viện thiết bị' })
   @ApiConsumes('multipart/form-data')
   @ApiBody({ type: UploadAvatarDto })
@@ -91,7 +103,7 @@ export class UsersController {
     return this.usersService.changePassword(userId, dto);
   }
 
-  // 🏠 ADDRESS (Chỉ quản lý 1 địa chỉ duy nhất)
+  // 🏠 ADDRESS
   @Get('address')
   @ApiOperation({ summary: 'Lấy thông tin địa chỉ nhận hàng của tôi' })
   getMyAddress(@Request() req: any) {
@@ -106,10 +118,7 @@ export class UsersController {
     return this.usersService.updateAddress(userId, dto);
   }
 
-  // ==========================================
-  // SECTION 2: CÁC API DÀNH CHO ADMIN
-  // ==========================================
-
+  // 👥 ADMIN
   @Get('admin/customers')
   @UseGuards(RolesGuard)
   @Roles('ADMIN')
@@ -121,9 +130,7 @@ export class UsersController {
   @Get('admin/customers/:id/analytics')
   @UseGuards(RolesGuard)
   @Roles('ADMIN')
-  @ApiOperation({
-    summary: '[ADMIN] Xem chi tiết khách hàng + Thống kê số đơn & Danh mục yêu thích',
-  })
+  @ApiOperation({ summary: '[ADMIN] Xem chi tiết khách hàng' })
   getCustomerAnalytics(@Param('id') id: string) {
     return this.usersService.getCustomerAnalytics(id);
   }

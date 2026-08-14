@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/store/useAuthStore';
 import { useAdminStore } from '@/store/useAdminStore';
+import { adminOrdersService, AdminOrder } from '@/services/adminOrders.service';
 import { 
   Package, 
   ShoppingBag, 
@@ -22,7 +23,10 @@ import {
   Sun,
   Moon,
   ShieldAlert,
-  Loader2
+  Loader2,
+  Clock,
+  Truck,
+  XCircle
 } from 'lucide-react';
 
 export default function AdminPage() {
@@ -32,6 +36,12 @@ export default function AdminPage() {
 
   const [checkingAuth, setCheckingAuth] = useState(true);
   const [currentUser, setCurrentUser] = useState<any>(null);
+
+  // States Quản lý Đơn Hàng & Doanh Thu Realtime từ Backend
+  const [orders, setOrders] = useState<AdminOrder[]>([]);
+  const [totalRevenue, setTotalRevenue] = useState<number>(0);
+  const [loadingOrders, setLoadingOrders] = useState(false);
+  const [updatingOrderId, setUpdatingOrderId] = useState<string | null>(null);
 
   useEffect(() => {
     // Đọc token từ Zustand hoặc localStorage
@@ -55,9 +65,10 @@ export default function AdminPage() {
       return;
     }
 
-    // 2. Tắt màn hình Loading ngay
+    // 2. Tắt màn hình Loading & Lấy dữ liệu đơn hàng
     setCurrentUser(localUser);
     setCheckingAuth(false);
+    loadOrdersData();
   }, [user, token, router]);
 
   const [activeTab, setActiveTab] = useState<'overview' | 'products' | 'categories' | 'users' | 'vouchers' | 'comments'>('overview');
@@ -84,6 +95,33 @@ export default function AdminPage() {
       document.documentElement.classList.add('dark');
     } else {
       document.documentElement.classList.remove('dark');
+    }
+  };
+
+  // Load Đơn hàng & Doanh thu từ API Backend
+  const loadOrdersData = async () => {
+    try {
+      setLoadingOrders(true);
+      const res = await adminOrdersService.getAllOrders();
+      setOrders(res.orders || []);
+      setTotalRevenue(res.total_revenue || 0);
+    } catch (err) {
+      console.error('Lỗi lấy danh sách đơn hàng:', err);
+    } finally {
+      setLoadingOrders(false);
+    }
+  };
+
+  // Cập nhật trạng thái đơn hàng (Xác nhận / Đã giao / Hủy)
+  const handleUpdateOrderStatus = async (orderId: string, newStatus: string) => {
+    setUpdatingOrderId(orderId);
+    try {
+      await adminOrdersService.updateStatus(orderId, newStatus);
+      await loadOrdersData(); // Tự động load lại đơn hàng & cập nhật Doanh Thu
+    } catch (err: any) {
+      alert(err.response?.data?.message || 'Không thể cập nhật trạng thái đơn hàng!');
+    } finally {
+      setUpdatingOrderId(null);
     }
   };
 
@@ -233,39 +271,197 @@ export default function AdminPage() {
       <main className="flex-grow p-8 overflow-y-auto">
         <div className="max-w-6xl mx-auto space-y-8">
           
-          {/* TAB 1: BẢNG DOANH THU & TỔNG QUAN */}
+          {/* 🟢 TAB 1: BẢNG DOANH THU REALTIME & DUYỆT ĐƠN HÀNG */}
           {activeTab === 'overview' && (
-            <div className="space-y-6">
-              <h1 className="text-2xl font-black text-slate-800 dark:text-white">Thống Kê Doanh Thu System</h1>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <div className="bg-white dark:bg-slate-800/60 p-6 rounded-2xl border border-slate-200 dark:border-slate-700/60 flex items-center gap-4 shadow-sm">
-                  <div className="p-3.5 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 rounded-xl">
-                    <DollarSign className="w-8 h-8" />
+            <div className="space-y-8">
+              <div>
+                <h1 className="text-2xl font-black text-slate-800 dark:text-white mb-4">Thống Kê Doanh Thu System</h1>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  {/* Thẻ 1: Tổng Doanh Thu (Chỉ cộng đơn DELIVERED) */}
+                  <div className="bg-white dark:bg-slate-800/60 p-6 rounded-2xl border border-slate-200 dark:border-slate-700/60 flex items-center gap-4 shadow-sm">
+                    <div className="p-3.5 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 rounded-xl">
+                      <DollarSign className="w-8 h-8" />
+                    </div>
+                    <div>
+                      <span className="text-xs text-slate-500 dark:text-slate-400 block font-medium">Tổng Doanh Thu (Đã Giao)</span>
+                      <span className="text-2xl font-black text-emerald-600 dark:text-emerald-400">
+                        {totalRevenue.toLocaleString('vi-VN')} đ
+                      </span>
+                    </div>
                   </div>
-                  <div>
-                    <span className="text-xs text-slate-500 dark:text-slate-400 block font-medium">Tổng Doanh Thu Tháng</span>
-                    <span className="text-2xl font-black text-emerald-600 dark:text-emerald-400">13.400.000 đ</span>
+
+                  {/* Thẻ 2: Số Đơn Đã Giao Thành Công */}
+                  <div className="bg-white dark:bg-slate-800/60 p-6 rounded-2xl border border-slate-200 dark:border-slate-700/60 flex items-center gap-4 shadow-sm">
+                    <div className="p-3.5 bg-blue-500/10 text-blue-600 dark:text-blue-400 rounded-xl">
+                      <CheckCircle2 className="w-8 h-8" />
+                    </div>
+                    <div>
+                      <span className="text-xs text-slate-500 dark:text-slate-400 block font-medium">Đơn Giao Thành Công</span>
+                      <span className="text-2xl font-black text-blue-600 dark:text-blue-400">
+                        {orders.filter((o) => o.status === 'DELIVERED').length} / {orders.length} Đơn
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Thẻ 3: Đơn Cần Xử Lý */}
+                  <div className="bg-white dark:bg-slate-800/60 p-6 rounded-2xl border border-slate-200 dark:border-slate-700/60 flex items-center gap-4 shadow-sm">
+                    <div className="p-3.5 bg-amber-500/10 text-amber-600 dark:text-amber-400 rounded-xl">
+                      <Clock className="w-8 h-8" />
+                    </div>
+                    <div>
+                      <span className="text-xs text-slate-500 dark:text-slate-400 block font-medium">Đơn Cần Xử Lý</span>
+                      <span className="text-2xl font-black text-amber-600 dark:text-amber-400">
+                        {orders.filter((o) => o.status === 'PENDING' || o.status === 'CONFIRMED').length} Đơn
+                      </span>
+                    </div>
                   </div>
                 </div>
+              </div>
 
-                <div className="bg-white dark:bg-slate-800/60 p-6 rounded-2xl border border-slate-200 dark:border-slate-700/60 flex items-center gap-4 shadow-sm">
-                  <div className="p-3.5 bg-blue-500/10 text-blue-600 dark:text-blue-400 rounded-xl">
-                    <TrendingUp className="w-8 h-8" />
-                  </div>
-                  <div>
-                    <span className="text-xs text-slate-500 dark:text-slate-400 block font-medium">Tăng Trưởng Mua Hàng</span>
-                    <span className="text-2xl font-black text-blue-600 dark:text-blue-400">+24.5%</span>
-                  </div>
+              {/* BẢNG BÀN GIAO & CẬP NHẬT TRẠNG THÁI ĐƠN HÀNG */}
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <h2 className="text-lg font-bold text-slate-800 dark:text-white flex items-center gap-2">
+                    <ShoppingBag className="w-5 h-5 text-red-600" /> Quản Lý Đơn Hàng Từ Khách
+                  </h2>
+                  <button
+                    onClick={loadOrdersData}
+                    className="text-xs font-bold text-red-600 hover:underline"
+                  >
+                    Làm mới danh sách
+                  </button>
                 </div>
 
-                <div className="bg-white dark:bg-slate-800/60 p-6 rounded-2xl border border-slate-200 dark:border-slate-700/60 flex items-center gap-4 shadow-sm">
-                  <div className="p-3.5 bg-amber-500/10 text-amber-600 dark:text-amber-400 rounded-xl">
-                    <Users className="w-8 h-8" />
-                  </div>
-                  <div>
-                    <span className="text-xs text-slate-500 dark:text-slate-400 block font-medium">Khách Hàng Mới</span>
-                    <span className="text-2xl font-black text-amber-600 dark:text-amber-400">{users.length} Khách</span>
-                  </div>
+                <div className="bg-white dark:bg-slate-800/60 rounded-2xl border border-slate-200 dark:border-slate-700/50 p-4 shadow-sm overflow-x-auto">
+                  {loadingOrders ? (
+                    <div className="text-center py-10 text-slate-400 flex items-center justify-center gap-2">
+                      <Loader2 className="w-5 h-5 animate-spin text-red-600" /> Đang lấy danh sách đơn hàng...
+                    </div>
+                  ) : orders.length === 0 ? (
+                    <div className="text-center py-10 text-slate-400 text-sm">Chưa có đơn hàng nào.</div>
+                  ) : (
+                    <table className="w-full text-left text-sm min-w-[700px]">
+                      <thead className="bg-slate-100 dark:bg-slate-900/80 text-slate-600 dark:text-slate-400 uppercase text-xs">
+                        <tr>
+                          <th className="p-3">Mã Đơn</th>
+                          <th className="p-3">Khách Hàng</th>
+                          <th className="p-3">Sản Phẩm</th>
+                          <th className="p-3">Tổng Tiền</th>
+                          <th className="p-3">Trạng Thái</th>
+                          <th className="p-3 text-center">Xác Nhận Luồng</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-200 dark:divide-slate-700/50">
+                        {orders.map((order) => {
+                          const isUpdating = updatingOrderId === order.id;
+
+                          return (
+                            <tr key={order.id}>
+                              <td className="p-3 font-mono font-bold text-xs text-amber-600 dark:text-yellow-400">
+                                {order.order_code || `#${order.id.slice(0, 8)}`}
+                              </td>
+
+                              <td className="p-3">
+                                <div className="font-bold text-slate-800 dark:text-white">
+                                  {order.user?.full_name || 'Khách hàng'}
+                                </div>
+                                <div className="text-[11px] text-slate-400">{order.user?.phone || order.user?.email}</div>
+                              </td>
+
+                              <td className="p-3 text-xs text-slate-600 dark:text-slate-300 max-w-[200px]">
+                                {order.order_items && order.order_items.length > 0 ? (
+                                  order.order_items.map((it, idx) => (
+                                    <div key={idx} className="truncate">
+                                      • {it.sku?.product?.name || 'Bộ Lego'} (x{it.quantity})
+                                    </div>
+                                  ))
+                                ) : (
+                                  <span className="text-slate-400">Chi tiết sản phẩm</span>
+                                )}
+                              </td>
+
+                              <td className="p-3 font-black text-red-600 dark:text-red-400 whitespace-nowrap">
+                                {Number(order.total_amount).toLocaleString('vi-VN')} đ
+                              </td>
+
+                              <td className="p-3 whitespace-nowrap">
+                                {order.status === 'PENDING' && (
+                                  <span className="bg-amber-500/10 text-amber-600 dark:text-amber-400 px-2.5 py-1 rounded-full text-xs font-bold flex items-center gap-1 w-fit">
+                                    <Clock className="w-3.5 h-3.5" /> Chờ xác nhận
+                                  </span>
+                                )}
+                                {order.status === 'CONFIRMED' && (
+                                  <span className="bg-blue-500/10 text-blue-600 dark:text-blue-400 px-2.5 py-1 rounded-full text-xs font-bold flex items-center gap-1 w-fit">
+                                    <Truck className="w-3.5 h-3.5" /> Đang giao hàng
+                                  </span>
+                                )}
+                                {order.status === 'DELIVERED' && (
+                                  <span className="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 px-2.5 py-1 rounded-full text-xs font-bold flex items-center gap-1 w-fit">
+                                    <CheckCircle2 className="w-3.5 h-3.5" /> Đã giao (+Doanh thu)
+                                  </span>
+                                )}
+                                {order.status === 'CANCELLED' && (
+                                  <span className="bg-red-500/10 text-red-600 dark:text-red-400 px-2.5 py-1 rounded-full text-xs font-bold flex items-center gap-1 w-fit">
+                                    <XCircle className="w-3.5 h-3.5" /> Đã hủy
+                                  </span>
+                                )}
+                              </td>
+
+                              {/* THAO TÁC DUYỆT ĐƠN HÀNG */}
+                              <td className="p-3 text-center whitespace-nowrap">
+                                {isUpdating ? (
+                                  <Loader2 className="w-5 h-5 animate-spin mx-auto text-slate-400" />
+                                ) : (
+                                  <div className="flex items-center justify-center gap-2">
+                                    {/* Bước 1: PENDING -> Bấm "Xác Nhận Đơn" hoặc "Hủy Đơn" */}
+                                    {order.status === 'PENDING' && (
+                                      <>
+                                        <button
+                                          onClick={() => handleUpdateOrderStatus(order.id, 'CONFIRMED')}
+                                          className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold px-3 py-1.5 rounded-xl transition shadow"
+                                        >
+                                          Xác Nhận Đơn
+                                        </button>
+                                        <button
+                                          onClick={() => handleUpdateOrderStatus(order.id, 'CANCELLED')}
+                                          className="bg-slate-200 dark:bg-slate-700 hover:bg-red-600 hover:text-white text-slate-700 dark:text-slate-300 text-xs font-bold px-3 py-1.5 rounded-xl transition"
+                                        >
+                                          Hủy Đơn
+                                        </button>
+                                      </>
+                                    )}
+
+                                    {/* Bước 2: CONFIRMED -> Bấm "Xác Nhận Đã Giao" (Cộng doanh thu) hoặc "Hủy Đơn" */}
+                                    {order.status === 'CONFIRMED' && (
+                                      <>
+                                        <button
+                                          onClick={() => handleUpdateOrderStatus(order.id, 'DELIVERED')}
+                                          className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-3 py-1.5 rounded-xl transition shadow flex items-center gap-1"
+                                        >
+                                          <CheckCircle2 className="w-3.5 h-3.5" /> Xác Nhận Đã Giao
+                                        </button>
+                                        <button
+                                          onClick={() => handleUpdateOrderStatus(order.id, 'CANCELLED')}
+                                          className="bg-slate-200 dark:bg-slate-700 hover:bg-red-600 hover:text-white text-slate-700 dark:text-slate-300 text-xs font-bold px-3 py-1.5 rounded-xl transition"
+                                        >
+                                          Hủy Đơn
+                                        </button>
+                                      </>
+                                    )}
+
+                                    {/* Bước 3: Đã DELIVERED hoặc CANCELLED */}
+                                    {(order.status === 'DELIVERED' || order.status === 'CANCELLED') && (
+                                      <span className="text-xs text-slate-400 italic">Hoàn tất xử lý</span>
+                                    )}
+                                  </div>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  )}
                 </div>
               </div>
             </div>

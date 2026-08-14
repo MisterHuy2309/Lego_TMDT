@@ -8,8 +8,8 @@ import * as bcrypt from 'bcrypt';
 import { PrismaService } from 'src/prisma/prisma.service';
 
 import { ChangePasswordDto } from './dto/change-password.dto';
-import { UpdateAddressDto } from './dto/update-address.dto';
 import { QueryCustomerDto } from './dto/query-customer.dto';
+import { UpdateAddressDto } from './dto/update-address.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 
 @Injectable()
@@ -29,6 +29,7 @@ export class UsersService {
         role: true,
         created_at: true,
         addresses: {
+          orderBy: { is_default: 'desc' },
           take: 1,
         },
       },
@@ -38,7 +39,7 @@ export class UsersService {
     return user;
   }
 
-  // 🟢 HÀM LƯU ĐƯỜNG DẪN AVATAR VÀO CSDL
+  // 🟢 2. LƯU ĐƯỜNG DẪN AVATAR VÀO CSDL
   async uploadAvatar(userId: string, avatarUrl: string) {
     const user = await this.prisma.users.findUnique({ where: { id: userId } });
     if (!user) throw new NotFoundException('Người dùng không tồn tại');
@@ -60,7 +61,7 @@ export class UsersService {
     };
   }
 
-  // 🟢 CẬP NHẬT PROFILE & TÁCH BẢNG ADDRESSES THÔNG MINH
+  // 🟢 3. CẬP NHẬT PROFILE & TÁCH BẢNG ADDRESSES THÔNG MINH
   async updateProfile(userId: string, dto: UpdateProfileDto) {
     if (dto.email) {
       const existingEmail = await this.prisma.users.findFirst({
@@ -72,7 +73,13 @@ export class UsersService {
     }
 
     // Tách dữ liệu địa chỉ ra khỏi DTO để không làm hỏng query bảng users
-    const { street, ward, district, city, ...userProfileData } = dto as any;
+    const { street, ward, district, city, ...rawUserProfileData } = dto as any;
+
+    const userProfileData: any = {};
+    if (rawUserProfileData.full_name !== undefined) userProfileData.full_name = rawUserProfileData.full_name;
+    if (rawUserProfileData.email !== undefined) userProfileData.email = rawUserProfileData.email;
+    if (rawUserProfileData.phone !== undefined) userProfileData.phone = rawUserProfileData.phone;
+    if (rawUserProfileData.avatar_url !== undefined) userProfileData.avatar_url = rawUserProfileData.avatar_url;
 
     const hasAddressData = street || ward || district || city;
     if (hasAddressData) {
@@ -96,13 +103,16 @@ export class UsersService {
         phone: true,
         avatar_url: true,
         role: true,
+        created_at: true,
         addresses: {
+          orderBy: { is_default: 'desc' },
           take: 1,
         },
       },
     });
   }
 
+  // 🔐 4. ĐỔI MẬT KHẨU
   async changePassword(userId: string, dto: ChangePasswordDto) {
     const user = await this.prisma.users.findUnique({ where: { id: userId } });
     if (!user) throw new NotFoundException('Người dùng không tồn tại');
@@ -122,9 +132,11 @@ export class UsersService {
     return { message: 'Đổi mật khẩu thành công' };
   }
 
+  // 🏠 5. LẤY ĐỊA CHỈ NHẬN HÀNG
   async getMyAddress(userId: string) {
     const address = await this.prisma.addresses.findFirst({
       where: { user_id: userId },
+      orderBy: { is_default: 'desc' },
     });
 
     if (!address) {
@@ -134,9 +146,11 @@ export class UsersService {
     return address;
   }
 
+  // 🏠 6. CẬP NHẬT HOẶC TẠO ĐỊA CHỈ NHẬN HÀNG
   async updateAddress(userId: string, dto: UpdateAddressDto) {
     const existingAddress = await this.prisma.addresses.findFirst({
       where: { user_id: userId },
+      orderBy: { is_default: 'desc' },
     });
 
     if (existingAddress) {
@@ -155,6 +169,7 @@ export class UsersService {
     });
   }
 
+  // 👥 7. [ADMIN] LẤY DANH SÁCH KHÁCH HÀNG
   async findAllCustomers(query: QueryCustomerDto) {
     const { search } = query;
 
@@ -186,6 +201,7 @@ export class UsersService {
     });
   }
 
+  // 📊 8. [ADMIN] ANALYTICS KHÁCH HÀNG
   async getCustomerAnalytics(userId: string) {
     const customer = await this.prisma.users.findFirst({
       where: { id: userId, role: 'CLIENT' },
@@ -195,7 +211,10 @@ export class UsersService {
         full_name: true,
         phone: true,
         created_at: true,
-        addresses: { take: 1 },
+        addresses: {
+          orderBy: { is_default: 'desc' },
+          take: 1,
+        },
       },
     });
 
@@ -255,15 +274,15 @@ export class UsersService {
       const orderDate = new Date(order.created_at);
 
       if (order.status !== 'CANCELLED') {
-        totalSpent += Number(order.total_amount);
+        totalSpent += Number(order.total_amount || 0);
       }
 
       if (orderDate >= startOfYear) ordersThisYearCount++;
       if (orderDate >= startOfMonth) ordersThisMonthCount++;
       if (orderDate >= startOfWeek) ordersThisWeekCount++;
 
-      order.order_items.forEach((item) => {
-        const category = item.sku.product.category;
+      order.order_items?.forEach((item) => {
+        const category = item.sku?.product?.category;
         if (category) {
           if (!categoryMap[category.id]) {
             categoryMap[category.id] = {
@@ -272,7 +291,7 @@ export class UsersService {
               count: 0,
             };
           }
-          categoryMap[category.id].count += item.quantity;
+          categoryMap[category.id].count += item.quantity || 0;
         }
       });
     });
@@ -295,6 +314,7 @@ export class UsersService {
     };
   }
 
+  // 🗑️ 9. [ADMIN] XÓA KHÁCH HÀNG
   async deleteCustomer(userId: string) {
     const customer = await this.prisma.users.findFirst({
       where: { id: userId, role: 'CLIENT' },
@@ -307,7 +327,7 @@ export class UsersService {
     const activeOrders = await this.prisma.orders.findFirst({
       where: {
         user_id: userId,
-        status: { in: ['PENDING', 'PROCESSING', 'SHIPPED'] },
+        status: { in: ['PENDING', 'CONFIRMED'] },
       },
     });
 

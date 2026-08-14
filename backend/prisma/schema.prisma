@@ -26,6 +26,8 @@ model users {
   avatar_url    String?
   role          String   @default("CLIENT") // 'ADMIN', 'CLIENT'
   created_at    DateTime @default(now())
+  admin_pin     String?  // 🔒 Mã PIN 6 số đã được mã hóa bằng bcrypt
+  revenue_backups revenue_backups[]
 
   // Relations
   addresses  addresses[]
@@ -235,4 +237,17 @@ model review_media {
 
   // Relations
   review reviews @relation(fields: [review_id], references: [id], onDelete: Cascade)
+}
+
+model revenue_backups {
+  id              String   @id @default(uuid())
+  backup_code     String   @unique // VD: REVPIN-172350291
+  total_revenue   Decimal  @db.Decimal(15, 2)
+  total_orders    Int
+  backup_data     Json     // Lưu danh sách ID các đơn hàng/Doanh thu chi tiết dạng JSON
+  created_by      String
+  created_at      DateTime @default(now())
+  expires_at      DateTime // Ngày tự động xóa (Created_at + 30 ngày)
+
+  admin           users    @relation(fields: [created_by], references: [id], onDelete: Cascade)
 }

@@ -12,9 +12,9 @@ import { OrdersModule } from './modules/orders/orders.module';
 import { PaymentsModule } from './modules/payments/payments.module';
 import { ReviewsModule } from './modules/reviews/reviews.module';
 import { AnalyticsModule } from './modules/analytics/analytics.module'; // 👈 Import module vừa tạo
-
+import { AdminsetingModule } from './modules/adminseting/adminseting.module'; // 👈 1. Import dòng này
 @Module({
-  imports: [PrismaModule, AuthModule, UsersModule, AddressesModule, CategoriesModule, ProductsModule,AnalyticsModule, CartModule, OrdersModule, PaymentsModule, ReviewsModule],
+  imports: [PrismaModule, AuthModule, UsersModule, AddressesModule, CategoriesModule, ProductsModule,AnalyticsModule, CartModule, OrdersModule, PaymentsModule, ReviewsModule,AdminsetingModule],
   controllers: [AppController],
   providers: [AppService],
 })
