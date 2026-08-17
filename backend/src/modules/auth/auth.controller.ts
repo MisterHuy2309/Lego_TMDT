@@ -1,11 +1,11 @@
 import { Body, Controller, HttpCode, HttpStatus, Post } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
-import { RegisterDto } from './dto/create-auth.dto'; // Import chuẩn từ create-auth.dto.ts
+import { RegisterDto } from './dto/create-auth.dto';
 import { LoginDto } from './dto/update-auth.dto';
 
 @ApiTags('Auth (Xác thực & Đăng ký/Đăng nhập)')
-@Controller('api/v1/auth')
+@Controller('auth') // 🟢 ĐỔI TỪ 'api/v1/auth' THÀNH 'auth'
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
