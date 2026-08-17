@@ -57,6 +57,15 @@ export const cartService = {
     const response = await api.post('/orders', data);
     return response.data;
   },
+
+  // 6. Tạo link thanh toán VNPay -> POST /api/v1/payments/create-url
+  createPaymentUrl: async (orderId: string, paymentMethod?: string) => {
+    const response = await api.post('/payments/create-url', {
+      orderId,
+      paymentMethod,
+    });
+    return response.data;
+  },
 };
 
 export default cartService;
