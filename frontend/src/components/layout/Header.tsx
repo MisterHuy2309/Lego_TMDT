@@ -11,27 +11,29 @@ export default function Header() {
   const router = useRouter();
   const [mounted, setMounted] = useState(false);
 
-  // Lấy giá trị user & logout từ Auth Store
+  // Lấy giá trị user, token & logout từ Auth Store
   const user = useAuthStore((state) => state.user);
+  const token = useAuthStore((state) => state.token);
   const logout = useAuthStore((state) => state.logout);
 
   // Lấy giỏ hàng từ Cart Store
   const items = useCartStore((state) => state.items);
   const fetchCart = useCartStore((state) => state.fetchCart);
 
-  // Tránh lỗi Hydration giữa SSR và CSR khi lấy dữ liệu Auth/Cart từ LocalStorage
+  // Tránh lỗi Hydration giữa SSR và CSR
   useEffect(() => {
     setMounted(true);
   }, []);
 
-  // Tự động load giỏ hàng khi người dùng đã đăng nhập
+  // Chỉ tự động tải giỏ hàng khi có người dùng và token hợp lệ
   useEffect(() => {
-    if (user) {
+    const hasToken = token || (typeof window !== 'undefined' && localStorage.getItem('access_token'));
+    if (user && hasToken) {
       fetchCart();
     }
-  }, [user, fetchCart]);
+  }, [user, token, fetchCart]);
 
-  // Tính tổng số lượng trong giỏ hàng an toàn
+  // Tính tổng số lượng mặt hàng trong giỏ hàng
   const totalCartCount = Array.isArray(items)
     ? items.reduce((sum: number, item: any) => sum + (item.quantity || 0), 0)
     : 0;
@@ -59,7 +61,7 @@ export default function Header() {
           <span className="font-bold text-xl tracking-wide hidden sm:inline">GẠCH NHỰA</span>
         </Link>
 
-        {/* Menu Điều Hướng Trang Chủ / Sản Phẩm */}
+        {/* Menu Điều Hướng Trang Chủ / Sản Phẩm / Đơn Hàng */}
         <nav className="hidden md:flex items-center gap-8 font-bold text-sm">
           <Link href="/" className="hover:text-yellow-300 transition">
             Trang Chủ
@@ -67,15 +69,16 @@ export default function Header() {
           <Link href="/products" className="hover:text-yellow-300 transition">
             Sản Phẩm
           </Link>
-          <Link href="/profile" className="hover:text-yellow-300 transition">
+          {/* 🟢 ĐÃ CẬP NHẬT: Trỏ chính xác đến trang /orders thay vì /profile */}
+          <Link href="/orders" className="hover:text-yellow-300 transition">
             Đơn Hàng Của Tôi
           </Link>
         </nav>
 
-        {/* Khu Vực Nút Chức Năng (Giỏ Hàng & User Account) */}
+        {/* Khu Vực Nút Chức Năng (Admin, Giỏ Hàng & Tài Khoản) */}
         <div className="flex items-center gap-3">
           
-          {/* 🟢 NÚT DASHBOARD ADMIN TĨNH: ĐÃ BỎ animate-pulse VÀ DÙNG mounted ĐỂ FIX CHỚP */}
+          {/* Nút Dashboard Admin */}
           {mounted && user && user.role === 'ADMIN' && (
             <Link
               href="/admin"
@@ -108,6 +111,7 @@ export default function Header() {
                   <Link
                     href="/profile"
                     className="flex items-center gap-2 bg-red-700 hover:bg-red-800 px-3 py-2 rounded-xl transition border border-red-500"
+                    title="Thông tin cá nhân"
                   >
                     <User className="w-4 h-4 text-yellow-400" />
                     <span className="text-xs font-bold max-w-[100px] truncate">

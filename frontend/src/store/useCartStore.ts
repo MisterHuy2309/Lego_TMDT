@@ -9,6 +9,7 @@ interface CartState {
   addItem: (skuId: string, quantity?: number) => Promise<void>;
   updateQuantity: (cartItemId: string, quantity: number) => Promise<void>;
   removeItem: (cartItemId: string) => Promise<void>;
+  clearCart: () => void;
 }
 
 export const useCartStore = create<CartState>((set, get) => ({
@@ -21,7 +22,6 @@ export const useCartStore = create<CartState>((set, get) => ({
       set({ loading: true });
       const data = await cartService.getCart();
 
-      // Bắt trường hợp backend trả về trực tiếp mảng hoặc bọc trong { items: [] }
       const cartItems: CartItem[] = Array.isArray(data)
         ? data
         : (data as any)?.items || [];
@@ -39,11 +39,10 @@ export const useCartStore = create<CartState>((set, get) => ({
   addItem: async (skuId: string, quantity: number = 1) => {
     try {
       await cartService.addToCart({ sku_id: skuId, quantity });
-      // Thêm thành công -> Sync lại giỏ hàng mới nhất từ server
       await get().fetchCart();
     } catch (error) {
       console.error('Lỗi thêm sản phẩm vào giỏ:', error);
-      throw error; // Re-throw để Component phía trên (ProductDetailPage) bắt lỗi và hiển thị toast/alert
+      throw error;
     }
   },
 
@@ -53,7 +52,7 @@ export const useCartStore = create<CartState>((set, get) => ({
 
     const previousItems = get().items;
 
-    // Cập nhật giao diện lập tức cho trải nghiệm mượt mà
+    // Cập nhật UI ngay lập tức
     set({
       items: previousItems.map((item) =>
         item.id === cartItemId ? { ...item, quantity } : item
@@ -65,7 +64,7 @@ export const useCartStore = create<CartState>((set, get) => ({
     } catch (error: any) {
       console.error('Lỗi cập nhật số lượng:', error);
 
-      // Rollback về trạng thái cũ nếu server báo lỗi (vd: hết hàng)
+      // Rollback về trạng thái cũ nếu server báo lỗi
       set({ items: previousItems });
 
       const serverMessage = error.response?.data?.message;
@@ -81,7 +80,6 @@ export const useCartStore = create<CartState>((set, get) => ({
   removeItem: async (cartItemId: string) => {
     const previousItems = get().items;
 
-    // Xóa khỏi UI ngay lập tức
     set((state) => ({
       items: state.items.filter((item) => item.id !== cartItemId),
     }));
@@ -90,8 +88,10 @@ export const useCartStore = create<CartState>((set, get) => ({
       await cartService.removeItem(cartItemId);
     } catch (error) {
       console.error('Lỗi xóa sản phẩm khỏi giỏ:', error);
-      // Rollback lại nếu server xóa thất bại
       set({ items: previousItems });
     }
   },
+
+  // 5. Xóa trắng giỏ hàng (khi checkout thành công hoặc logout)
+  clearCart: () => set({ items: [] }),
 }));

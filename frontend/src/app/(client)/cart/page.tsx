@@ -1,276 +1,333 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useCartStore } from '@/store/useCartStore';
 import { useAuthStore } from '@/store/useAuthStore';
-import { Trash2, Plus, Minus, ArrowRight, ShoppingBag, Loader2 } from 'lucide-react';
+import { CartItem } from '@/types/cart.type';
+import {
+  Trash2,
+  Plus,
+  Minus,
+  ShoppingBag,
+  ArrowRight,
+  Loader2,
+  Tag,
+  ShieldCheck,
+  Sparkles
+} from 'lucide-react';
 
 export default function CartPage() {
   const router = useRouter();
   const token = useAuthStore((state) => state.token);
   const { items, loading, fetchCart, updateQuantity, removeItem } = useCartStore();
 
+  const [updatingId, setUpdatingId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (typeof document !== 'undefined') {
+      document.documentElement.classList.remove('dark');
+    }
+  }, []);
+
   useEffect(() => {
     const hasToken = token || (typeof window !== 'undefined' && localStorage.getItem('access_token'));
-    if (hasToken) {
-      fetchCart();
-    }
-  }, [token, fetchCart]);
-
-  // 🟢 1. Hàm trích xuất Giá tiền
-  const getItemPrice = (item: any): number => {
-    if (item.price && Number(item.price) > 0) return Number(item.price);
-    if (item.sku?.price && Number(item.sku.price) > 0) return Number(item.sku.price);
-    if (item.sku?.product?.base_price) return Number(item.sku.product.base_price);
-    if (item.product?.base_price) return Number(item.product.base_price);
-    return 0;
-  };
-
-  // 🟢 2. Hàm trích xuất Tên sản phẩm
-  const getItemName = (item: any): string => {
-    return item.product_name || item.sku?.product?.name || item.product?.name || 'Bộ LEGO';
-  };
-
-  // 🟢 3. Hàm lấy Slug sản phẩm
-  const getItemSlug = (item: any): string => {
-    return item.product_slug || item.sku?.product?.slug || item.product?.slug || '';
-  };
-
-  // 🟢 4. Hàm trích xuất Stock (Tồn kho) cực kỳ chính xác
-  const getItemStock = (item: any): number => {
-    const stockCandidate =
-      item.sku?.stock ??
-      item.product?.stock ??
-      item.sku?.product?.stock ??
-      item.stock ??
-      item.product_stock ??
-      item.sku?.stock_quantity;
-
-    if (typeof stockCandidate !== 'undefined' && stockCandidate !== null) {
-      return Number(stockCandidate);
-    }
-
-    return 99; // Fallback nếu hoàn toàn không có dữ liệu stock
-  };
-
-  // 🟢 Tính tổng tiền đơn hàng
-  const totalAmount = items.reduce((sum, item) => {
-    const price = getItemPrice(item);
-    return sum + price * (item.quantity || 1);
-  }, 0);
-
-  // ✅ Tiến hành đặt hàng
-  const handleProceedToCheckout = () => {
-    const hasToken = token || (typeof window !== 'undefined' && localStorage.getItem('access_token'));
     if (!hasToken) {
-      alert('Vui lòng đăng nhập để tiến hành đặt hàng!');
-      router.push('/login');
+      router.replace('/login');
       return;
     }
-    router.push('/checkout');
+    fetchCart();
+  }, [token, router, fetchCart]);
+
+  // Tính giá sau giảm
+  const calculateItemPrice = (item: CartItem) => {
+    const originalPrice = Number(item.sku?.price ?? item.price ?? item.original_price ?? 0);
+    const discount = item.sku?.product?.discount ?? item.discount_info;
+
+    if (!discount || discount.is_active === false) {
+      return {
+        unitPrice: originalPrice,
+        originalPrice,
+        hasDiscount: false,
+        discountLabel: '',
+        discountCode: '',
+      };
+    }
+
+    const now = new Date();
+    const isStarted = !discount.start_date || new Date(discount.start_date) <= now;
+    const isNotExpired = !discount.end_date || new Date(discount.end_date) >= now;
+
+    if (!isStarted || !isNotExpired) {
+      return {
+        unitPrice: originalPrice,
+        originalPrice,
+        hasDiscount: false,
+        discountLabel: '',
+        discountCode: '',
+      };
+    }
+
+    const discountVal = Number(discount.discount_value || 0);
+    let finalUnitPrice = originalPrice;
+    let discountLabel = '';
+
+    if (discount.discount_type === 'PERCENTAGE' || !discount.discount_type) {
+      finalUnitPrice = Math.max(0, originalPrice - (originalPrice * discountVal) / 100);
+      discountLabel = `-${discountVal}%`;
+    } else {
+      finalUnitPrice = Math.max(0, originalPrice - discountVal);
+      discountLabel = discountVal >= 1000 ? `-${(discountVal / 1000).toFixed(0)}K` : `-${discountVal}đ`;
+    }
+
+    return {
+      unitPrice: finalUnitPrice,
+      originalPrice,
+      hasDiscount: true,
+      discountLabel,
+      discountCode: discount.code || '',
+    };
   };
 
-  if (loading && items.length === 0) {
-    return (
-      <div className="min-h-screen bg-slate-50 py-12 flex flex-col justify-center items-center text-slate-500">
-        <Loader2 className="w-10 h-10 animate-spin text-red-600 mb-2" />
-        <span>Đang tải giỏ hàng...</span>
-      </div>
-    );
-  }
+  const handleUpdateQuantity = async (itemId: string, newQty: number) => {
+    if (newQty < 1) return;
+    setUpdatingId(itemId);
+    try {
+      await updateQuantity(itemId, newQty);
+    } catch (err) {
+      console.error('Lỗi cập nhật số lượng:', err);
+    } finally {
+      setUpdatingId(null);
+    }
+  };
 
-  if (items.length === 0) {
+  const handleRemove = async (itemId: string) => {
+    try {
+      await removeItem(itemId);
+    } catch (err) {
+      alert('Không thể xóa sản phẩm khỏi giỏ hàng!');
+    }
+  };
+
+  let totalOriginalPrice = 0;
+  let totalFinalPrice = 0;
+
+  (items || []).forEach((item: CartItem) => {
+    const { unitPrice, originalPrice } = calculateItemPrice(item);
+    const qty = Number(item.quantity || 1);
+    totalOriginalPrice += originalPrice * qty;
+    totalFinalPrice += unitPrice * qty;
+  });
+
+  const totalSaved = Math.max(0, totalOriginalPrice - totalFinalPrice);
+
+  if (loading && (!items || items.length === 0)) {
     return (
-      <div className="min-h-screen bg-slate-50 py-16 px-4">
-        <div className="max-w-md mx-auto bg-white p-8 rounded-3xl text-center shadow-sm border border-slate-100">
-          <ShoppingBag className="w-16 h-16 text-slate-300 mx-auto mb-4" />
-          <h2 className="text-2xl font-bold text-slate-800 mb-2">Giỏ Hàng Đang Trống</h2>
-          <p className="text-slate-500 text-sm mb-6">Bạn chưa thêm bộ Lego nào vào giỏ hàng cả.</p>
-          <Link
-            href="/products"
-            className="inline-block bg-red-600 hover:bg-red-700 text-white font-bold px-6 py-3 rounded-xl transition shadow"
-          >
-            Khám Phá Lego Ngay
-          </Link>
-        </div>
+      <div className="min-h-[70vh] flex flex-col items-center justify-center bg-slate-50">
+        <Loader2 className="w-10 h-10 animate-spin text-red-600 mb-3" />
+        <p className="text-sm font-semibold text-slate-500">Đang tải giỏ hàng của bạn...</p>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 py-8 px-4">
-      <div className="max-w-6xl mx-auto">
-        <h1 className="text-3xl font-black text-slate-800 mb-6">Giỏ Hàng Của Bạn</h1>
+    <div className="min-h-screen bg-slate-50 py-10 px-4">
+      <div className="max-w-6xl mx-auto space-y-8">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-6 md:p-8 rounded-3xl border border-slate-100 shadow-sm">
+          <div>
+            <h1 className="text-2xl md:text-3xl font-black text-slate-900">Giỏ Hàng Của Bạn</h1>
+            <p className="text-xs md:text-sm text-slate-400 mt-1">
+              Bạn đang có <strong className="text-red-600">{items?.length || 0}</strong> loại mô hình LEGO trong giỏ
+            </p>
+          </div>
+          <Link
+            href="/products"
+            className="px-5 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs md:text-sm rounded-2xl transition flex items-center justify-center gap-2 w-fit"
+          >
+            <ShoppingBag className="w-4 h-4" /> Mua Thêm Bộ Khác
+          </Link>
+        </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          {/* Danh Sách Món Hàng */}
-          <div className="lg:col-span-2 space-y-4">
-            {items.map((item) => {
-              // 🟢 Lấy ID chuẩn của Cart Item (bắt sạch các khả năng từ backend)
-              const itemId =
-                item.id ||
-                (item as any).cart_item_id ||
-                (item as any)._id ||
-                (item as any).cartItemId ||
-                (item as any).sku_id;
+        {!items || items.length === 0 ? (
+          <div className="bg-white rounded-3xl p-12 text-center border border-slate-100 shadow-sm space-y-4">
+            <div className="w-16 h-16 bg-red-50 text-red-500 rounded-full flex items-center justify-center mx-auto">
+              <ShoppingBag className="w-8 h-8" />
+            </div>
+            <div>
+              <h3 className="text-lg font-bold text-slate-800">Giỏ hàng của bạn đang trống</h3>
+              <p className="text-xs text-slate-400 mt-1">Hãy khám phá và chọn ngay bộ LEGO bạn yêu thích nhé!</p>
+            </div>
+            <Link
+              href="/products"
+              className="inline-block px-6 py-3 bg-red-600 hover:bg-red-700 text-white font-black text-sm rounded-2xl shadow-lg transition active:scale-95"
+            >
+              Khám Phá Cửa Hàng Ngay
+            </Link>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            <div className="lg:col-span-2 space-y-4">
+              {items.map((item: CartItem) => {
+                const productName = item.sku?.product?.name ?? item.product_name ?? 'Mô hình LEGO';
+                const productSlug = item.sku?.product?.slug ?? item.product_slug ?? '';
+                const boxCondition = item.sku?.box_condition ?? item.box_condition ?? 'Mới 100%';
+                
+                const { unitPrice, originalPrice, hasDiscount, discountLabel, discountCode } = calculateItemPrice(item);
+                const isUpdating = updatingId === item.id;
 
-              const productName = getItemName(item);
-              const productSlug = getItemSlug(item);
-              const price = getItemPrice(item);
-              const maxStock = getItemStock(item);
+                const rawImg =
+                  item.image_url ||
+                  item.sku?.product?.product_images?.find((img) => img.is_primary)?.image_url ||
+                  item.sku?.product?.product_images?.[0]?.image_url ||
+                  'https://images.unsplash.com/photo-1585366119957-e9730b6d0f60?w=200';
 
-              // Phân tích điều kiện kịch trần
-              const isMaxStockReached = item.quantity >= maxStock;
+                const backendHost = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3000';
+                const primaryImg =
+                  rawImg.startsWith('http') || rawImg.startsWith('data:')
+                    ? rawImg
+                    : `${backendHost}${rawImg.startsWith('/') ? '' : '/'}${rawImg}`;
 
-              // Lấy image_url chuẩn:
-              const rawImgUrl =
-                (item as any).image_url ||
-                item.sku?.product?.product_images?.find((i: any) => i.is_primary)?.image_url ||
-                item.sku?.product?.product_images?.[0]?.image_url ||
-                'https://images.unsplash.com/photo-1585366119957-e9730b6d0f60?w=500';
+                return (
+                  <div
+                    key={item.id}
+                    className="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm flex flex-col sm:flex-row items-center justify-between gap-4 transition hover:shadow-md"
+                  >
+                    <div className="flex items-center gap-4 w-full sm:w-auto">
+                      <div className="w-20 h-20 bg-slate-50 rounded-2xl border border-slate-100 p-2 flex items-center justify-center shrink-0 overflow-hidden">
+                        <img
+                          src={primaryImg}
+                          alt={productName}
+                          className="max-h-full max-w-full object-contain"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <Link
+                          href={productSlug ? `/products/${productSlug}` : '#'}
+                          className="font-bold text-slate-900 text-sm hover:text-red-600 transition line-clamp-1"
+                        >
+                          {productName}
+                        </Link>
+                        <div className="text-xs text-slate-400">
+                          Tình trạng: <span className="font-semibold text-slate-700">{boxCondition}</span>
+                        </div>
 
-              const imgUrl =
-                rawImgUrl.startsWith('http') || rawImgUrl.startsWith('data:')
-                  ? rawImgUrl
-                  : `http://localhost:3000${rawImgUrl.startsWith('/') ? '' : '/'}${rawImgUrl}`;
+                        {hasDiscount && (
+                          <div className="flex items-center gap-1.5 pt-0.5">
+                            <span className="bg-gradient-to-r from-red-600 to-amber-500 text-white text-[10px] font-black px-2 py-0.5 rounded-lg flex items-center gap-1 shadow-sm">
+                              <Tag className="w-2.5 h-2.5" /> {discountLabel}
+                            </span>
+                            {discountCode && (
+                              <span className="text-[10px] text-red-600 font-bold bg-red-50 border border-red-200 px-1.5 py-0.5 rounded">
+                                MÃ: {discountCode}
+                              </span>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
 
-              return (
-                <div
-                  key={itemId || Math.random()}
-                  className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 flex items-center gap-4"
-                >
-                  <div className="w-20 h-20 bg-slate-50 rounded-xl overflow-hidden flex-shrink-0 p-1 border border-slate-100">
-                    <img
-                      src={imgUrl}
-                      alt={productName}
-                      className="w-full h-full object-contain"
-                      onError={(e) => {
-                        (e.target as HTMLImageElement).src =
-                          'https://images.unsplash.com/photo-1585366119957-e9730b6d0f60?w=500';
-                      }}
-                    />
-                  </div>
-
-                  <div className="flex-grow">
-                    <Link
-                      href={`/products/${productSlug}`}
-                      className="font-bold text-slate-800 hover:text-red-600 line-clamp-1 text-sm transition"
-                    >
-                      {productName}
-                    </Link>
-
-                    <span className="text-xs text-slate-400 block mt-0.5">
-                      Phân loại: {(item as any).box_condition || item.sku?.box_condition || 'Mới 100%'}
-                    </span>
-
-                    <div className="flex items-center gap-2 mt-1">
-                      <span className="text-sm font-black text-red-600">
-                        {price.toLocaleString('vi-VN')} đ
-                      </span>
-
-                      {/* Hiển thị cảnh báo số lượng tồn kho */}
-                      {isMaxStockReached && (
-                        <span className="text-[10px] bg-amber-50 text-amber-600 border border-amber-200 px-2 py-0.5 rounded-full font-bold">
-                          Tối đa trong kho: {maxStock}
+                    <div className="flex items-center justify-between sm:justify-end gap-6 w-full sm:w-auto border-t sm:border-t-0 pt-3 sm:pt-0">
+                      <div className="flex items-center bg-slate-50 rounded-2xl border border-slate-200 p-1">
+                        <button
+                          onClick={() => handleUpdateQuantity(item.id, item.quantity - 1)}
+                          disabled={item.quantity <= 1 || isUpdating}
+                          className="p-1.5 rounded-xl bg-white hover:bg-slate-100 disabled:opacity-30 text-slate-700 transition"
+                        >
+                          <Minus className="w-3.5 h-3.5" />
+                        </button>
+                        <span className="w-8 text-center text-xs font-black text-slate-900">
+                          {item.quantity}
                         </span>
-                      )}
+                        <button
+                          onClick={() => handleUpdateQuantity(item.id, item.quantity + 1)}
+                          disabled={isUpdating}
+                          className="p-1.5 rounded-xl bg-white hover:bg-slate-100 text-slate-700 transition"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+
+                     {/* SỬA ĐOẠN NÀY: */}
+                      <div className="text-right shrink-0 whitespace-nowrap">
+                        <div className="text-base font-black text-red-600 whitespace-nowrap">
+                          {(unitPrice * item.quantity).toLocaleString('vi-VN')} đ
+                        </div>
+                        {hasDiscount && (
+                          <div className="text-xs text-slate-400 line-through font-semibold whitespace-nowrap">
+                            {(originalPrice * item.quantity).toLocaleString('vi-VN')} đ
+                          </div>
+                        )}
+                      </div>
+
+                      <button
+                        onClick={() => handleRemove(item.id)}
+                        className="p-2 rounded-xl text-slate-300 hover:text-red-600 hover:bg-red-50 transition"
+                        title="Xóa khỏi giỏ"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
                     </div>
                   </div>
+                );
+              })}
+            </div>
 
-                  {/* Nút Tăng Giảm Số Lượng */}
-                  <div className="flex items-center border border-slate-200 rounded-xl overflow-hidden bg-white">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (!itemId) {
-                          console.error('❌ itemId bị undefined trong item:', item);
-                          return;
-                        }
-                        updateQuantity(itemId, item.quantity - 1);
-                      }}
-                      disabled={item.quantity <= 1}
-                      className="p-2 hover:bg-slate-100 disabled:opacity-20 disabled:cursor-not-allowed text-slate-600 transition"
-                      title="Giảm số lượng"
-                    >
-                      <Minus className="w-4 h-4" />
-                    </button>
+            <div className="space-y-4">
+              <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm space-y-5">
+                <h2 className="text-lg font-black text-slate-900 border-b border-slate-100 pb-4">
+                  Tóm Tắt Đơn Hàng
+                </h2>
 
-                    <span className="px-3 text-sm font-bold text-slate-800 select-none">
-                      {item.quantity}
+                <div className="space-y-3 text-xs text-slate-600">
+                  <div className="flex justify-between">
+                    <span>Tổng tiền hàng (Gốc)</span>
+                    <span className="font-bold text-slate-800">
+                      {totalOriginalPrice.toLocaleString('vi-VN')} đ
                     </span>
-
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (!itemId) {
-                          console.error('❌ itemId bị undefined trong item:', item);
-                          return;
-                        }
-                        if (isMaxStockReached) return;
-                        updateQuantity(itemId, item.quantity + 1);
-                      }}
-                      disabled={isMaxStockReached}
-                      className={`p-2 transition ${
-                        isMaxStockReached
-                          ? 'opacity-20 bg-slate-100 cursor-not-allowed text-slate-400'
-                          : 'hover:bg-slate-100 text-slate-600'
-                      }`}
-                      title={isMaxStockReached ? `Trong kho chỉ còn ${maxStock} sản phẩm` : 'Tăng số lượng'}
-                    >
-                      <Plus className="w-4 h-4" />
-                    </button>
                   </div>
 
-                  {/* Nút Xóa khỏi giỏ */}
-                  <button
-                    onClick={() => {
-                      if (!itemId) {
-                        console.error('❌ itemId bị undefined trong item:', item);
-                        return;
-                      }
-                      removeItem(itemId);
-                    }}
-                    className="p-2 text-slate-400 hover:text-red-600 transition"
-                    title="Xóa khỏi giỏ hàng"
-                  >
-                    <Trash2 className="w-5 h-5" />
-                  </button>
+                  {totalSaved > 0 && (
+                    <div className="flex justify-between text-red-600 font-bold bg-red-50 p-2.5 rounded-xl border border-red-100">
+                      <span className="flex items-center gap-1">
+                        <Sparkles className="w-3.5 h-3.5" /> Tiết kiệm được:
+                      </span>
+                      <span>-{totalSaved.toLocaleString('vi-VN')} đ</span>
+                    </div>
+                  )}
+
+                  <div className="flex justify-between">
+                    <span>Phí vận chuyển</span>
+                    <span className="font-bold text-emerald-600">
+                      {totalFinalPrice >= 1000000 ? 'Miễn phí' : 'Tính khi thanh toán'}
+                    </span>
+                  </div>
                 </div>
-              );
-            })}
+
+                <div className="border-t border-slate-100 pt-4 flex items-baseline justify-between">
+                  <div>
+                    <span className="text-xs font-bold text-slate-400 block uppercase">Tổng Thanh Toán</span>
+                    <span className="text-2xl font-black text-red-600">
+                      {totalFinalPrice.toLocaleString('vi-VN')} đ
+                    </span>
+                  </div>
+                </div>
+
+                <Link
+                  href="/checkout"
+                  className="w-full bg-red-600 hover:bg-red-700 active:scale-98 text-white font-black py-4 rounded-2xl shadow-lg transition flex items-center justify-center gap-2 text-sm"
+                >
+                  Tiến Hành Thanh Toán <ArrowRight className="w-4 h-4" />
+                </Link>
+
+                <div className="flex items-center justify-center gap-1.5 text-[11px] text-slate-400 font-medium pt-2">
+                  <ShieldCheck className="w-4 h-4 text-emerald-500" />
+                  <span>Bảo mật thông tin & Đổi trả trong 7 ngày</span>
+                </div>
+              </div>
+            </div>
           </div>
-
-          {/* Tổng Tiền & Thanh Toán */}
-          <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 h-fit space-y-4">
-            <h2 className="text-lg font-bold text-slate-800 border-b pb-3">Tóm Tắt Đơn Hàng</h2>
-
-            <div className="flex justify-between text-slate-600 text-sm">
-              <span>Tạm tính</span>
-              <span className="font-bold text-slate-800">{totalAmount.toLocaleString('vi-VN')} đ</span>
-            </div>
-
-            <div className="flex justify-between text-slate-600 text-sm">
-              <span>Phí vận chuyển</span>
-              <span className="font-bold text-green-600">Miễn phí</span>
-            </div>
-
-            <div className="border-t pt-3 flex justify-between items-center">
-              <span className="font-bold text-slate-800">Tổng tiền</span>
-              <span className="text-2xl font-black text-red-600">
-                {totalAmount.toLocaleString('vi-VN')} đ
-              </span>
-            </div>
-
-            <button
-              onClick={handleProceedToCheckout}
-              className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-3.5 rounded-xl transition shadow-lg flex items-center justify-center gap-2"
-            >
-              Tiến Hành Đặt Hàng <ArrowRight className="w-5 h-5" />
-            </button>
-          </div>
-        </div>
+        )}
       </div>
     </div>
   );

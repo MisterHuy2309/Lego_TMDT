@@ -151,33 +151,53 @@ export class OrdersService {
   }
 
   // 📖 2. [CLIENT] XEM LỊCH SỬ ĐƠN HÀNG CÁ NHÂN
-  async getMyOrders(userId: string) {
-    return this.prisma.orders.findMany({
-      where: { user_id: userId },
-      include: {
-        order_items: {
-          include: {
-            sku: {
-              include: {
-                product: {
-                  select: {
-                    id: true,
-                    name: true,
-                    slug: true,
-                    product_images: {
-                      where: { is_primary: true },
-                      take: 1,
-                    },
-                  },
+  // 1. Lấy danh sách đơn hàng của tôi (Loại bỏ các đơn đã bị khách tự xóa/ẩn)
+async getMyOrders(userId: string) {
+  return this.prisma.orders.findMany({
+    where: {
+      user_id: userId,
+      is_hidden_by_user: false, // 🟢 Chỉ lấy đơn chưa bị ẩn
+    },
+    include: {
+      address: true,
+      order_items: {
+        include: {
+          sku: {
+            include: {
+              product: {
+                include: {
+                  product_images: true,
                 },
               },
             },
           },
         },
       },
-      orderBy: { created_at: 'desc' },
-    });
+    },
+    orderBy: { created_at: 'desc' },
+  });
+}
+
+// 2. Khách hàng xóa/ẩn lịch sử đơn hàng (Chỉ cho phép xóa khi đơn đã CANCELLED hoặc DELIVERED)
+async hideOrderHistory(userId: string, orderId: string) {
+  const order = await this.prisma.orders.findFirst({
+    where: { id: orderId, user_id: userId },
+  });
+
+  if (!order) {
+    throw new NotFoundException('Không tìm thấy đơn hàng!');
   }
+
+  // Chỉ cho phép xóa khi đơn đã kết thúc (Đã hủy hoặc Đã giao)
+  if (order.status !== 'CANCELLED' && order.status !== 'DELIVERED') {
+    throw new BadRequestException('Chỉ có thể xóa lịch sử đơn hàng đã hoàn tất hoặc đã bị hủy!');
+  }
+
+  return this.prisma.orders.update({
+    where: { id: orderId },
+    data: { is_hidden_by_user: true },
+  });
+}
 
   // 🟢 3. [ADMIN] LẤY TẤT CẢ ĐƠN HÀNG & TÍNH TỔNG DOANH THU REALTIME
   // backend/src/modules/orders/orders.service.ts

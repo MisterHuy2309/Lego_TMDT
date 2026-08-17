@@ -1,15 +1,26 @@
 import api from '@/lib/axios';
 
+export type OrderStatus =
+  | 'PENDING'
+  | 'CONFIRMED'
+  | 'PROCESSING'
+  | 'SHIPPED'
+  | 'DELIVERED'
+  | 'CANCELLED';
+
 export interface AdminOrderItem {
   id: string;
   quantity: number;
-  price: number;
+  price?: number;
+  price_at_purchase?: number;
   sku?: {
     sku_code: string;
     box_condition?: string;
     product?: {
+      id?: string;
       name: string;
       slug: string;
+      product_images?: { image_url: string; is_primary?: boolean }[];
     };
   };
 }
@@ -20,7 +31,9 @@ export interface AdminOrder {
   user_id: string;
   address_id?: string;
   total_amount: number;
-  status: 'PENDING' | 'CONFIRMED' | 'DELIVERED' | 'CANCELLED';
+  discount_amount?: number;
+  shipping_fee?: number;
+  status: OrderStatus | string;
   payment_method: string;
   created_at: string;
   user?: {
@@ -28,6 +41,14 @@ export interface AdminOrder {
     full_name: string;
     email: string;
     phone?: string;
+  };
+  address?: {
+    recipient_name: string;
+    phone: string;
+    street?: string;
+    ward?: string;
+    district?: string;
+    city?: string;
   };
   order_items?: AdminOrderItem[];
 }
@@ -46,7 +67,10 @@ export const adminOrdersService = {
     return res.data;
   },
 
-  updateStatus: async (orderId: string, status: string): Promise<AdminOrder> => {
+  updateStatus: async (
+    orderId: string,
+    status: OrderStatus | string,
+  ): Promise<AdminOrder> => {
     const res = await api.patch(`/orders/admin/${orderId}/status`, { status });
     return res.data;
   },

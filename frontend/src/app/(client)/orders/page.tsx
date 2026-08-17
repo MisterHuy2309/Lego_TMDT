@@ -16,7 +16,7 @@ import {
   Loader2,
   Calendar,
   MapPin,
-  ChevronRight
+  Trash2
 } from 'lucide-react';
 
 interface OrderItem {
@@ -59,16 +59,17 @@ export default function MyOrdersPage() {
   const token = useAuthStore((state) => state.token);
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [activeFilter, setActiveFilter] = useState('ALL');
 
-  // 🟢 TỰ ĐỘNG GỠ CLASS DARK KHỎI GIAO DIỆN CLIENT
+  // Gỡ bỏ class dark nếu dính từ Admin
   useEffect(() => {
     if (typeof document !== 'undefined') {
       document.documentElement.classList.remove('dark');
     }
   }, []);
 
-  // Kiểm tra đăng nhập và nạp danh sách đơn hàng
+  // Kiểm tra xác thực & tải danh sách đơn hàng
   useEffect(() => {
     const hasToken = token || (typeof window !== 'undefined' && localStorage.getItem('access_token'));
     if (!hasToken) {
@@ -91,15 +92,34 @@ export default function MyOrdersPage() {
     }
   };
 
+  // 🗑️ Hàm xóa lịch sử đơn hàng
+  const handleDeleteHistory = async (orderId: string, orderCode: string) => {
+    if (!confirm(`Bạn có chắc chắn muốn xóa lịch sử đơn hàng #${orderCode || orderId.slice(0, 8)}?`)) {
+      return;
+    }
+
+    setDeletingId(orderId);
+    try {
+      await api.delete(`/orders/my-orders/${orderId}`);
+      // Cập nhật UI ngay lập tức
+      setOrders((prev) => prev.filter((o) => o.id !== orderId));
+      alert('Đã xóa lịch sử đơn hàng thành công!');
+    } catch (err: any) {
+      alert(err.response?.data?.message || 'Không thể xóa lịch sử đơn hàng!');
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
   // 4 bước tiến trình chính xác
   const steps = [
     { key: 'PENDING', label: 'Đang đợi chấp nhận', icon: Clock, desc: 'Shop đang duyệt đơn' },
     { key: 'CONFIRMED', label: 'Đã xác nhận đơn hàng', icon: CheckCircle2, desc: 'Đang chuẩn bị hàng' },
-    { key: 'SHIPPED', label: 'Đang giao hàng', icon: Truck, desc: 'Đơn vị VC đang giao' },
-    { key: 'DELIVERED', label: 'Đã giao hàng', icon: PackageCheck, desc: 'Giao hàng thành công' },
+    { key: 'SHIPPED', label: 'Đang giao hàng', icon: Truck, desc: 'Đang giao hàng' },
+    { key: 'DELIVERED', label: 'Đã giao hàng', icon: PackageCheck, desc: 'Đã giao hàng' },
   ];
 
-  // Tính toán vị trí bước hiện tại
+  // Tính vị trí bước hiện tại
   const getStepIndex = (status: string) => {
     switch (status) {
       case 'PENDING':
@@ -145,7 +165,7 @@ export default function MyOrdersPage() {
           <div>
             <h1 className="text-2xl md:text-3xl font-black text-slate-900">Đơn Hàng Của Tôi</h1>
             <p className="text-xs md:text-sm text-slate-400 mt-1">
-              Theo dõi quy trình xử lý & vận chuyển mô hình LEGO theo thời gian thực
+              Theo dõi quy trình đặt hàng và quản lý lịch sử mua LEGO
             </p>
           </div>
           <Link
@@ -201,6 +221,9 @@ export default function MyOrdersPage() {
           filteredOrders.map((order) => {
             const currentStepIdx = getStepIndex(order.status);
             const isCancelled = order.status === 'CANCELLED';
+            const isDelivered = order.status === 'DELIVERED';
+            const canDeleteHistory = isCancelled || isDelivered; // 🟢 Chỉ cho xóa lịch sử khi đã HỦY hoặc ĐÃ GIAO
+            const isDeleting = deletingId === order.id;
 
             return (
               <div
@@ -225,13 +248,13 @@ export default function MyOrdersPage() {
                     </span>
                   </div>
 
-                  {/* Badge Trạng Thái Tổng Thể */}
-                  <div>
+                  {/* Badge Trạng Thái Tổng Thể & Nút Xóa Lịch Sử */}
+                  <div className="flex items-center gap-2">
                     {isCancelled ? (
                       <span className="bg-red-50 text-red-600 font-bold px-3 py-1 rounded-xl text-xs flex items-center gap-1.5 border border-red-100">
                         <XCircle className="w-3.5 h-3.5" /> Đã Hủy Đơn
                       </span>
-                    ) : order.status === 'DELIVERED' ? (
+                    ) : isDelivered ? (
                       <span className="bg-emerald-50 text-emerald-600 font-bold px-3 py-1 rounded-xl text-xs flex items-center gap-1.5 border border-emerald-100">
                         <PackageCheck className="w-3.5 h-3.5" /> Giao Hàng Thành Công
                       </span>
@@ -240,17 +263,34 @@ export default function MyOrdersPage() {
                         <Clock className="w-3.5 h-3.5" /> Đang Xử Lý Đơn Hàng
                       </span>
                     )}
+
+                    {/* 🗑️ NÚT XÓA LỊCH SỬ ĐƠN HÀNG (KHI ĐÃ HỦY HOẶC ĐÃ GIAO) */}
+                    {canDeleteHistory && (
+                      <button
+                        onClick={() => handleDeleteHistory(order.id, order.order_code)}
+                        disabled={isDeleting}
+                        className="p-1.5 rounded-xl bg-slate-100 hover:bg-red-50 text-slate-400 hover:text-red-600 transition flex items-center gap-1 text-xs font-bold px-2.5 border border-slate-200"
+                        title="Xóa lịch sử đơn hàng này"
+                      >
+                        {isDeleting ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        ) : (
+                          <Trash2 className="w-3.5 h-3.5" />
+                        )}
+                        <span className="hidden sm:inline">Xóa lịch sử</span>
+                      </button>
+                    )}
                   </div>
                 </div>
 
-                {/* 🟢 THANH TIẾN TRÌNH 4 BƯỚC (STEPPER TIMELINE) */}
+                {/* THANH TIẾN TRÌNH 4 BƯỚC ĐẶT HÀNG */}
                 {!isCancelled ? (
                   <div className="p-6 md:p-8 bg-white border-b border-slate-50">
                     <div className="relative flex items-center justify-between">
-                      {/* Đường line nền */}
+                      {/* Line nền */}
                       <div className="absolute top-1/2 left-0 right-0 h-1.5 bg-slate-100 -translate-y-1/2 z-0" />
                       
-                      {/* Đường line tiến trình active */}
+                      {/* Line active */}
                       <div
                         className="absolute top-1/2 left-0 h-1.5 bg-emerald-500 -translate-y-1/2 z-0 transition-all duration-500"
                         style={{
@@ -258,7 +298,7 @@ export default function MyOrdersPage() {
                         }}
                       />
 
-                      {/* Các điểm mốc */}
+                      {/* 4 Mốc biểu tượng */}
                       {steps.map((step, idx) => {
                         const Icon = step.icon;
                         const isDone = currentStepIdx >= idx;
@@ -266,7 +306,6 @@ export default function MyOrdersPage() {
 
                         return (
                           <div key={step.key} className="relative z-10 flex flex-col items-center group">
-                            {/* Nút tròn biểu tượng */}
                             <div
                               className={`w-10 h-10 md:w-12 md:h-12 rounded-2xl flex items-center justify-center transition-all duration-300 shadow-md ${
                                 isCurrent
@@ -279,7 +318,6 @@ export default function MyOrdersPage() {
                               <Icon className="w-5 h-5 md:w-6 md:h-6" />
                             </div>
 
-                            {/* Tên bước & Mô tả */}
                             <div className="text-center mt-2.5">
                               <span
                                 className={`text-[11px] md:text-xs font-black block whitespace-nowrap ${
@@ -302,8 +340,13 @@ export default function MyOrdersPage() {
                     </div>
                   </div>
                 ) : (
-                  <div className="p-4 bg-red-50/60 border-b border-red-100 text-center text-xs font-bold text-red-600">
-                    Đơn hàng này đã bị hủy. Nếu có bất kỳ thắc mắc nào, quý khách vui lòng liên hệ Admin để được hỗ trợ.
+                  <div className="p-4 bg-red-50/60 border-b border-red-100 flex items-center justify-between text-xs text-red-600 font-medium px-6">
+                    <span>
+                      Đơn hàng đã bị hủy bởi Quản trị viên/Hệ thống và được lưu vào lịch sử.
+                    </span>
+                    <span className="font-bold text-[11px] text-red-700 bg-red-100 px-2 py-0.5 rounded-lg">
+                      Lịch sử hủy
+                    </span>
                   </div>
                 )}
 
@@ -384,7 +427,6 @@ export default function MyOrdersPage() {
             );
           })
         )}
-
       </div>
     </div>
   );

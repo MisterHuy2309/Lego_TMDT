@@ -16,7 +16,10 @@ import { UpdateProfileDto } from './dto/update-profile.dto';
 export class UsersService {
   constructor(private readonly prisma: PrismaService) {}
 
-  // 1. Lấy thông tin cá nhân
+  // ============================================================================
+  // 1. PROFILE & TÀI KHOẢN
+  // ============================================================================
+
   async getProfile(userId: string) {
     const user = await this.prisma.users.findUnique({
       where: { id: userId },
@@ -39,7 +42,6 @@ export class UsersService {
     return user;
   }
 
-  // 🟢 2. LƯU ĐƯỜNG DẪN AVATAR VÀO CSDL
   async uploadAvatar(userId: string, avatarUrl: string) {
     const user = await this.prisma.users.findUnique({ where: { id: userId } });
     if (!user) throw new NotFoundException('Người dùng không tồn tại');
@@ -61,7 +63,6 @@ export class UsersService {
     };
   }
 
-  // 🟢 3. CẬP NHẬT PROFILE & TÁCH BẢNG ADDRESSES THÔNG MINH
   async updateProfile(userId: string, dto: UpdateProfileDto) {
     if (dto.email) {
       const existingEmail = await this.prisma.users.findFirst({
@@ -72,7 +73,6 @@ export class UsersService {
       }
     }
 
-    // Tách dữ liệu địa chỉ ra khỏi DTO để không làm hỏng query bảng users
     const { street, ward, district, city, ...rawUserProfileData } = dto as any;
 
     const userProfileData: any = {};
@@ -112,7 +112,6 @@ export class UsersService {
     });
   }
 
-  // 🔐 4. ĐỔI MẬT KHẨU
   async changePassword(userId: string, dto: ChangePasswordDto) {
     const user = await this.prisma.users.findUnique({ where: { id: userId } });
     if (!user) throw new NotFoundException('Người dùng không tồn tại');
@@ -132,7 +131,10 @@ export class UsersService {
     return { message: 'Đổi mật khẩu thành công' };
   }
 
-  // 🏠 5. LẤY ĐỊA CHỈ NHẬN HÀNG
+  // ============================================================================
+  // 2. ĐỊA CHỈ NHẬN HÀNG
+  // ============================================================================
+
   async getMyAddress(userId: string) {
     const address = await this.prisma.addresses.findFirst({
       where: { user_id: userId },
@@ -146,7 +148,6 @@ export class UsersService {
     return address;
   }
 
-  // 🏠 6. CẬP NHẬT HOẶC TẠO ĐỊA CHỈ NHẬN HÀNG
   async updateAddress(userId: string, dto: UpdateAddressDto) {
     const existingAddress = await this.prisma.addresses.findFirst({
       where: { user_id: userId },
@@ -169,7 +170,10 @@ export class UsersService {
     });
   }
 
-  // 👥 7. [ADMIN] LẤY DANH SÁCH KHÁCH HÀNG
+  // ============================================================================
+  // 3. ADMIN - QUẢN LÝ KHÁCH HÀNG & TRẠNG THÁI REALTIME
+  // ============================================================================
+
   async findAllCustomers(query: QueryCustomerDto) {
     const { search } = query;
 
@@ -201,128 +205,271 @@ export class UsersService {
     });
   }
 
-  // 📊 8. [ADMIN] ANALYTICS KHÁCH HÀNG
-  async getCustomerAnalytics(userId: string) {
-    const customer = await this.prisma.users.findFirst({
-      where: { id: userId, role: 'CLIENT' },
-      select: {
-        id: true,
-        email: true,
-        full_name: true,
-        phone: true,
-        created_at: true,
+  async getCustomersWithStatus() {
+    const customers = await (this.prisma as any).users.findMany({
+      where: { role: 'CLIENT' },
+      include: {
         addresses: {
           orderBy: { is_default: 'desc' },
           take: 1,
         },
+        sent_messages: {
+          orderBy: { created_at: 'desc' },
+          take: 1,
+        },
+        user_vouchers: {
+          include: { discount: true },
+        },
+        _count: {
+          select: { orders: true },
+        },
       },
+      orderBy: { last_active_at: 'desc' },
     });
 
-    if (!customer) {
-      throw new NotFoundException('Không tìm thấy khách hàng!');
+    const now = new Date().getTime();
+
+    return customers.map((user: any) => {
+      const lastActive = new Date(user.last_active_at || user.created_at).getTime();
+      const diffMinutes = Math.floor((now - lastActive) / (1000 * 60));
+
+      let onlineStatus = 'OFFLINE';
+      let offlineDuration = '';
+
+      if (diffMinutes < 5) {
+        onlineStatus = 'ONLINE';
+      } else if (diffMinutes < 60) {
+        offlineDuration = `${diffMinutes} phút trước`;
+      } else if (diffMinutes < 1440) {
+        offlineDuration = `${Math.floor(diffMinutes / 60)} giờ trước`;
+      } else {
+        offlineDuration = `${Math.floor(diffMinutes / 1440)} ngày trước`;
+      }
+
+      const defaultAddress = user.addresses?.[0];
+      const addressString = defaultAddress
+        ? `${defaultAddress.street || ''}, ${defaultAddress.ward || ''}, ${defaultAddress.district || ''}, ${defaultAddress.city || ''}`
+            .replace(/^,\s*|,\s*$/g, '')
+            .trim()
+        : 'Chưa cập nhật';
+
+      return {
+        id: user.id,
+        full_name: user.full_name || 'Khách hàng',
+        email: user.email,
+        phone: user.phone || 'Chưa cập nhật',
+        avatar_url: user.avatar_url,
+        address: addressString || 'Chưa cập nhật',
+        is_online: onlineStatus === 'ONLINE',
+        offline_minutes: diffMinutes,
+        offline_duration: offlineDuration,
+        last_message: user.sent_messages?.[0]?.message || null,
+        last_message_time: user.sent_messages?.[0]?.created_at || null,
+        total_orders: user._count?.orders || 0,
+        gifted_vouchers: user.user_vouchers || [],
+      };
+    });
+  }
+
+  async giftVoucherToUser(userId: string, discountId: string) {
+    const user = await this.prisma.users.findUnique({ where: { id: userId } });
+    if (!user) throw new NotFoundException('Không tìm thấy khách hàng!');
+
+    const discount = await (this.prisma as any).discounts.findUnique({
+      where: { id: discountId },
+    });
+    if (!discount) throw new NotFoundException('Không tìm thấy mã giảm giá!');
+
+    return (this.prisma as any).user_vouchers.create({
+      data: {
+        user_id: userId,
+        discount_id: discountId,
+      },
+      include: {
+        discount: true,
+      },
+    });
+  }
+
+  // ============================================================================
+  // 4. CHAT MESSENGER REALTIME (TEXT, MEDIA, SỬA, XÓA 2 CHIỀU)
+  // ============================================================================
+
+  // 💬 4.1 Lấy lịch sử chat
+  async getCustomerChatMessages(userId: string) {
+    const messages = await (this.prisma as any).chat_messages.findMany({
+      where: {
+        OR: [{ sender_id: userId }, { receiver_id: userId }],
+      },
+      orderBy: { created_at: 'asc' },
+    });
+
+    return messages.map((m: any) => {
+      if (m.deleted_all) {
+        return { ...m, message: 'Tin nhắn đã được thu hồi', media_url: null };
+      }
+      return m;
+    });
+  }
+
+  // 📤 4.2 Gửi tin nhắn văn bản
+  async adminSendMessage(adminId: string, customerId: string, message: string) {
+    return (this.prisma as any).chat_messages.create({
+      data: {
+        sender_id: adminId,
+        receiver_id: customerId,
+        message,
+        is_read: false,
+      },
+    });
+  }
+
+  // 📷 4.3 Gửi tin nhắn kèm Media (Ảnh / Video)
+  async adminSendMediaMessage(
+    adminId: string,
+    customerId: string,
+    message?: string,
+    mediaUrl?: string,
+    mediaType?: string,
+  ) {
+    return (this.prisma as any).chat_messages.create({
+      data: {
+        sender_id: adminId,
+        receiver_id: customerId,
+        message: message || '',
+        media_url: mediaUrl,
+        media_type: mediaType,
+        is_read: false,
+      },
+    });
+  }
+
+  // ✏️ 4.4 Sửa tin nhắn (Fix TS2339)
+  async editMessage(messageId: string, newText: string) {
+    const msg = await (this.prisma as any).chat_messages.findUnique({
+      where: { id: messageId },
+    });
+
+    if (!msg) throw new NotFoundException('Không tìm thấy tin nhắn!');
+
+    return (this.prisma as any).chat_messages.update({
+      where: { id: messageId },
+      data: { message: newText, is_edited: true },
+    });
+  }
+
+  // 🗑️ 4.5 Xóa tin nhắn (Fix TS2339)
+  async deleteMessage(messageId: string, userId: string, deleteType: 'ME' | 'ALL') {
+    const msg = await (this.prisma as any).chat_messages.findUnique({
+      where: { id: messageId },
+    });
+
+    if (!msg) throw new NotFoundException('Không tìm thấy tin nhắn!');
+
+    if (deleteType === 'ALL') {
+      return (this.prisma as any).chat_messages.update({
+        where: { id: messageId },
+        data: {
+          deleted_all: true,
+          message: 'Tin nhắn đã được thu hồi',
+          media_url: null,
+        },
+      });
+    } else {
+      const currentDeletedList = msg.deleted_for || [];
+      return (this.prisma as any).chat_messages.update({
+        where: { id: messageId },
+        data: {
+          deleted_for: [...currentDeletedList, userId],
+        },
+      });
     }
+  }
 
-    const now = new Date();
-    const startOfYear = new Date(now.getFullYear(), 0, 1);
-    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+  // ============================================================================
+  // 5. ANALYTICS & XÓA KHÁCH HÀNG
+  // ============================================================================
 
-    const dayOfWeek = now.getDay();
-    const distanceToMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
-    const startOfWeek = new Date(now);
-    startOfWeek.setDate(now.getDate() - distanceToMonday);
-    startOfWeek.setHours(0, 0, 0, 0);
+  async getCustomerAnalytics(userId: string) {
+  const customer = await this.prisma.users.findUnique({
+    where: { id: userId },
+    select: {
+      id: true,
+      email: true,
+      full_name: true,
+      phone: true,
+      avatar_url: true,
+      role: true,
+      created_at: true,
+      addresses: {
+        orderBy: { is_default: 'desc' },
+      },
+      sent_messages: {
+        orderBy: { created_at: 'desc' },
+        take: 5,
+      },
+      user_vouchers: {
+        include: {
+          discount: true,
+        },
+      },
+    },
+  });
 
-    const allOrders = await this.prisma.orders.findMany({
-      where: { user_id: userId },
-      select: {
-        id: true,
-        order_code: true,
-        status: true,
-        total_amount: true,
-        created_at: true,
-        order_items: {
-          select: {
-            quantity: true,
-            sku: {
-              select: {
-                product: {
-                  select: {
-                    category: {
-                      select: {
-                        id: true,
-                        name: true,
-                      },
-                    },
-                  },
-                },
-              },
+  if (!customer) throw new NotFoundException('Không tìm thấy khách hàng!');
+
+  const allOrders = await this.prisma.orders.findMany({
+    where: { user_id: userId },
+    select: {
+      id: true,
+      order_code: true,
+      status: true,
+      total_amount: true,
+      created_at: true,
+      order_items: {
+        include: {
+          sku: {
+            include: {
+              product: true,
             },
           },
         },
       },
-    });
+    },
+    orderBy: { created_at: 'desc' },
+  });
 
-    const totalOrdersCount = allOrders.length;
-    let ordersThisYearCount = 0;
-    let ordersThisMonthCount = 0;
-    let ordersThisWeekCount = 0;
-    let totalSpent = 0;
+  const totalSpent = allOrders
+    .filter((o) => o.status === 'DELIVERED')
+    .reduce((sum, o) => sum + Number(o.total_amount || 0), 0);
 
-    const categoryMap: Record<string, { id: string; name: string; count: number }> = {};
+  const defaultAddress = customer.addresses?.[0];
+  const formattedAddress = defaultAddress
+    ? [defaultAddress.street, defaultAddress.ward, defaultAddress.district, defaultAddress.city]
+        .filter(Boolean)
+        .join(', ')
+    : 'Chưa cập nhật địa chỉ';
 
-    allOrders.forEach((order) => {
-      const orderDate = new Date(order.created_at);
+  return {
+    customer: {
+      ...customer,
+      formatted_address: formattedAddress,
+    },
+    analytics: {
+      total_orders: allOrders.length,
+      total_spent: totalSpent,
+      delivered_orders: allOrders.filter((o) => o.status === 'DELIVERED').length,
+    },
+    orders: allOrders,
+  };
+}
 
-      if (order.status !== 'CANCELLED') {
-        totalSpent += Number(order.total_amount || 0);
-      }
-
-      if (orderDate >= startOfYear) ordersThisYearCount++;
-      if (orderDate >= startOfMonth) ordersThisMonthCount++;
-      if (orderDate >= startOfWeek) ordersThisWeekCount++;
-
-      order.order_items?.forEach((item) => {
-        const category = item.sku?.product?.category;
-        if (category) {
-          if (!categoryMap[category.id]) {
-            categoryMap[category.id] = {
-              id: category.id,
-              name: category.name,
-              count: 0,
-            };
-          }
-          categoryMap[category.id].count += item.quantity || 0;
-        }
-      });
-    });
-
-    const favoriteCategories = Object.values(categoryMap).sort(
-      (a, b) => b.count - a.count,
-    );
-
-    return {
-      customer,
-      analytics: {
-        total_orders: totalOrdersCount,
-        orders_this_year: ordersThisYearCount,
-        orders_this_month: ordersThisMonthCount,
-        orders_this_week: ordersThisWeekCount,
-        total_spent: totalSpent,
-        favorite_categories: favoriteCategories,
-      },
-      recent_orders: allOrders.slice(0, 5),
-    };
-  }
-
-  // 🗑️ 9. [ADMIN] XÓA KHÁCH HÀNG
   async deleteCustomer(userId: string) {
     const customer = await this.prisma.users.findFirst({
       where: { id: userId, role: 'CLIENT' },
     });
 
-    if (!customer) {
-      throw new NotFoundException('Không tìm thấy khách hàng!');
-    }
+    if (!customer) throw new NotFoundException('Không tìm thấy khách hàng!');
 
     const activeOrders = await this.prisma.orders.findFirst({
       where: {

@@ -18,22 +18,52 @@ datasource db {
 // ==========================================
 
 model users {
-  id            String   @id @default(uuid())
-  email         String   @unique
-  password_hash String
-  full_name     String
-  phone         String?
-  avatar_url    String?
-  role          String   @default("CLIENT") // 'ADMIN', 'CLIENT'
-  created_at    DateTime @default(now())
-  admin_pin     String?  // 🔒 Mã PIN 6 số đã được mã hóa bằng bcrypt
+  id             String    @id @default(uuid())
+  email          String    @unique
+  password_hash  String
+  full_name      String
+  phone          String?
+  avatar_url     String?
+  role           String    @default("CLIENT") // 'ADMIN', 'CLIENT'
+  is_online      Boolean   @default(false)    // Trạng thái Online / Offline
+  last_active_at DateTime  @default(now())    // Lưu mốc thời gian online gần nhất
+  admin_pin      String?   // Mã PIN 6 số đã được mã hóa bằng bcrypt
+  created_at     DateTime  @default(now())
+
+  // Quan hệ lưu trữ sao lưu doanh thu
   revenue_backups revenue_backups[]
 
-  // Relations
+  // Relations cơ bản
   addresses  addresses[]
   cart_items cart_items[]
   orders     orders[]
   reviews    reviews[]
+
+  // Relations cho Chat Messenger & Nhận Voucher
+  sent_messages     chat_messages[] @relation("UserSentMessages")
+  received_messages chat_messages[] @relation("UserReceivedMessages")
+  user_vouchers     user_vouchers[]
+}
+
+// 💬 BẢNG TIN NHẮN CHAT MESSENGER REALTIME (Admin <-> Khách hàng)
+model chat_messages {
+  id           String    @id @default(uuid())
+  sender_id    String
+  receiver_id  String?  
+  message      String?   @db.Text
+  media_url    String?   // Lưu đường dẫn ảnh hoặc video
+  media_type   String?   // "IMAGE" hoặc "VIDEO"
+  is_read      Boolean   @default(false)
+  
+  is_edited    Boolean   @default(false)
+  deleted_for  String[]  
+  deleted_all  Boolean   @default(false) 
+  reply_to_id  String?   
+  
+  created_at   DateTime  @default(now())
+
+  sender   users  @relation("UserSentMessages", fields: [sender_id], references: [id], onDelete: Cascade)
+  receiver users? @relation("UserReceivedMessages", fields: [receiver_id], references: [id], onDelete: SetNull)
 }
 
 model addresses {
@@ -68,21 +98,24 @@ model categories {
 model products {
   id          String   @id @default(uuid())
   category_id String?
+  discount_id String?  // 🟢 Khóa ngoại liên kết trực tiếp với bảng discounts
   name        String
   slug        String   @unique
   description String?  @db.Text
-  item_number String? // Mã bộ Lego (VD: 75313)
-  piece_count Int? // Số lượng mảnh ghép
-  min_age     Int? // Độ tuổi khuyến nghị
+  item_number String?  // Mã bộ Lego (VD: 75313)
+  piece_count Int?     // Số lượng mảnh ghép
+  min_age     Int?     // Độ tuổi khuyến nghị
   base_price  Decimal  @db.Decimal(10, 2)
   rating_avg  Decimal  @default(0) @db.Decimal(3, 2)
   created_at  DateTime @default(now())
 
   // Relations
-  category       categories?      @relation(fields: [category_id], references: [id], onDelete: SetNull)
-  product_images product_images[]
-  product_skus   product_skus[]
-  reviews        reviews[]
+  category          categories?         @relation(fields: [category_id], references: [id], onDelete: SetNull)
+  discount          discounts?          @relation("ProductDirectDiscount", fields: [discount_id], references: [id], onDelete: SetNull) // 🟢 Quan hệ đối ứng trực tiếp
+  product_images    product_images[]
+  product_skus      product_skus[]
+  reviews           reviews[]
+  discount_products discount_products[] // Quan hệ qua bảng trung gian
 }
 
 model product_images {
@@ -122,41 +155,70 @@ model cart_items {
 }
 
 model discounts {
-  id              String    @id @default(uuid())
-  code            String    @unique // Ví dụ: LEGO10K, SUMMERSALE
+  id              String   @id @default(uuid())
+  code            String   @unique
   description     String?
-  discount_type   String    // 'FIXED_AMOUNT' (Giảm cố định) hoặc 'PERCENTAGE' (Giảm %)
-  discount_value  Decimal   @db.Decimal(10, 2) // Giá trị giảm (Ví dụ: 50000 hoặc 10)
-  min_order_value Decimal   @default(0) @db.Decimal(10, 2) // Giá trị đơn hàng tối thiểu
-  max_discount    Decimal?  @db.Decimal(10, 2) // Số tiền giảm tối đa (cho loại PERCENTAGE)
-  usage_limit     Int?      // Số lượt sử dụng tối đa
-  used_count      Int       @default(0) // Số lượt đã dùng
+  discount_type   String   // "PERCENTAGE" | "FIXED_AMOUNT"
+  discount_value  Decimal  @db.Decimal(15, 2)
+  min_order_value Decimal  @default(0) @db.Decimal(15, 2)
+  max_discount    Decimal? @db.Decimal(15, 2)
+  usage_limit     Int?
+  used_count      Int      @default(0)
   start_date      DateTime
   end_date        DateTime
-  is_active       Boolean   @default(true)
-  created_at      DateTime  @default(now())
-
+  is_active       Boolean  @default(true) // Bật / Tắt Voucher
+  apply_to_all    Boolean  @default(true) // True: áp dụng toàn shop, False: chỉ sản phẩm chỉ định
+  created_at      DateTime @default(now())
+  
   // Relations
-  orders orders[]
+  products          products[]          @relation("ProductDirectDiscount") // 🟢 Quan hệ đối ứng với products.discount
+  orders            orders[]
+  discount_products discount_products[]
+  user_vouchers     user_vouchers[]
+}
+
+// 🔗 BẢNG LIÊN KẾT VOUCHER VỚI TỪNG SẢN PHẨM CỤ THỂ
+model discount_products {
+  id          String @id @default(uuid())
+  discount_id String
+  product_id  String
+
+  discount discounts @relation(fields: [discount_id], references: [id], onDelete: Cascade)
+  product  products  @relation(fields: [product_id], references: [id], onDelete: Cascade)
+
+  @@unique([discount_id, product_id])
+}
+
+// 🎁 BẢNG TẶNG VOUCHER RIÊNG CHO TỪNG KHÁCH HÀNG
+model user_vouchers {
+  id          String   @id @default(uuid())
+  user_id     String
+  discount_id String
+  is_used     Boolean  @default(false)
+  created_at  DateTime @default(now())
+
+  user     users     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  discount discounts @relation(fields: [discount_id], references: [id], onDelete: Cascade)
 }
 
 model orders {
   id              String   @id @default(uuid())
   user_id         String
   address_id      String
-  discount_id     String?  // Mã giảm giá áp dụng (nếu có)
+  discount_id     String? // Mã giảm giá áp dụng (nếu có)
   order_code      String   @unique
   status          String   @default("PENDING") // PENDING, PROCESSING, SHIPPED, DELIVERED, CANCELLED
   total_amount    Decimal  @db.Decimal(10, 2)
   discount_amount Decimal  @default(0) @db.Decimal(10, 2) // Số tiền đã giảm
   shipping_fee    Decimal  @default(0) @db.Decimal(10, 2)
-  payment_method  String // COD, VNPAY, ZALOPAY
+  payment_method  String   // COD, VNPAY, ZALOPAY
+  is_hidden_by_user Boolean   @default(false)
   created_at      DateTime @default(now())
 
   // Relations
-  user        users        @relation(fields: [user_id], references: [id], onDelete: Restrict)
-  address     addresses    @relation(fields: [address_id], references: [id], onDelete: Restrict)
-  discount    discounts?   @relation(fields: [discount_id], references: [id], onDelete: SetNull)
+  user        users         @relation(fields: [user_id], references: [id], onDelete: Restrict)
+  address     addresses     @relation(fields: [address_id], references: [id], onDelete: Restrict)
+  discount    discounts?    @relation(fields: [discount_id], references: [id], onDelete: SetNull)
   order_items order_items[]
   payments    payments[]
 }
@@ -169,8 +231,8 @@ model order_items {
   quantity          Int
 
   // Relations
-  order   orders       @relation(fields: [order_id], references: [id], onDelete: Cascade)
-  sku     product_skus @relation(fields: [sku_id], references: [id], onDelete: Restrict)
+  order   orders        @relation(fields: [order_id], references: [id], onDelete: Cascade)
+  sku     product_skus  @relation(fields: [sku_id], references: [id], onDelete: Restrict)
   reviews reviews[]
 }
 
@@ -211,20 +273,15 @@ model reviews {
   id            String   @id @default(uuid())
   user_id       String
   product_id    String
-  
-  // 🟢 ĐỔI THÀNH OPTIONAL (có dấu ?) ĐỂ CHO PHÉP NULL KHI CHƯA MUA HÀNG
-  order_item_id String?  
-  
-  rating        Int // Từ 1 đến 5 sao
+  order_item_id String?
+  rating        Int      // Từ 1 đến 5 sao
   comment       String?  @db.Text
   created_at    DateTime @default(now())
 
   // Relations
-  user       users        @relation(fields: [user_id], references: [id], onDelete: Cascade)
-  product    products     @relation(fields: [product_id], references: [id], onDelete: Cascade)
-  
-  // 🟢 ĐỔI THÀNH OPTIONAL VÀ ĐỔI ON DELETE THÀNH SetNull (NẾU XÓA ĐƠN HÀNG THÌ BÌNH LUẬN VẪN CÒN)
-  order_item order_items? @relation(fields: [order_item_id], references: [id], onDelete: SetNull)
+  user       users         @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  product    products      @relation(fields: [product_id], references: [id], onDelete: Cascade)
+  order_item order_items?  @relation(fields: [order_item_id], references: [id], onDelete: SetNull)
   media      review_media[]
 }
 
@@ -240,14 +297,14 @@ model review_media {
 }
 
 model revenue_backups {
-  id              String   @id @default(uuid())
-  backup_code     String   @unique // VD: REVPIN-172350291
-  total_revenue   Decimal  @db.Decimal(15, 2)
-  total_orders    Int
-  backup_data     Json     // Lưu danh sách ID các đơn hàng/Doanh thu chi tiết dạng JSON
-  created_by      String
-  created_at      DateTime @default(now())
-  expires_at      DateTime // Ngày tự động xóa (Created_at + 30 ngày)
+  id            String   @id @default(uuid())
+  backup_code   String   @unique // VD: REVPIN-172350291
+  total_revenue Decimal  @db.Decimal(15, 2)
+  total_orders  Int
+  backup_data   Json     // Lưu danh sách ID các đơn hàng/Doanh thu chi tiết dạng JSON
+  created_by    String
+  created_at    DateTime @default(now())
+  expires_at    DateTime // Ngày tự động xóa (Created_at + 30 ngày)
 
-  admin           users    @relation(fields: [created_by], references: [id], onDelete: Cascade)
+  admin users @relation(fields: [created_by], references: [id], onDelete: Cascade)
 }

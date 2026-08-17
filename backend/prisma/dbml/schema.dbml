@@ -10,13 +10,35 @@ Table users {
   phone String
   avatar_url String
   role String [not null, default: 'CLIENT']
-  created_at DateTime [default: `now()`, not null]
+  is_online Boolean [not null, default: false]
+  last_active_at DateTime [default: `now()`, not null]
   admin_pin String
+  created_at DateTime [default: `now()`, not null]
   revenue_backups revenue_backups [not null]
   addresses addresses [not null]
   cart_items cart_items [not null]
   orders orders [not null]
   reviews reviews [not null]
+  sent_messages chat_messages [not null]
+  received_messages chat_messages [not null]
+  user_vouchers user_vouchers [not null]
+}
+
+Table chat_messages {
+  id String [pk]
+  sender_id String [not null]
+  receiver_id String
+  message String
+  media_url String
+  media_type String
+  is_read Boolean [not null, default: false]
+  is_edited Boolean [not null, default: false]
+  deleted_for String[] [not null]
+  deleted_all Boolean [not null, default: false]
+  reply_to_id String
+  created_at DateTime [default: `now()`, not null]
+  sender users [not null]
+  receiver users
 }
 
 Table addresses {
@@ -47,6 +69,7 @@ Table categories {
 Table products {
   id String [pk]
   category_id String
+  discount_id String
   name String [not null]
   slug String [unique, not null]
   description String
@@ -57,9 +80,11 @@ Table products {
   rating_avg Decimal [not null, default: 0]
   created_at DateTime [default: `now()`, not null]
   category categories
+  discount discounts
   product_images product_images [not null]
   product_skus product_skus [not null]
   reviews reviews [not null]
+  discount_products discount_products [not null]
 }
 
 Table product_images {
@@ -105,8 +130,34 @@ Table discounts {
   start_date DateTime [not null]
   end_date DateTime [not null]
   is_active Boolean [not null, default: true]
+  apply_to_all Boolean [not null, default: true]
   created_at DateTime [default: `now()`, not null]
+  products products [not null]
   orders orders [not null]
+  discount_products discount_products [not null]
+  user_vouchers user_vouchers [not null]
+}
+
+Table discount_products {
+  id String [pk]
+  discount_id String [not null]
+  product_id String [not null]
+  discount discounts [not null]
+  product products [not null]
+
+  indexes {
+    (discount_id, product_id) [unique]
+  }
+}
+
+Table user_vouchers {
+  id String [pk]
+  user_id String [not null]
+  discount_id String [not null]
+  is_used Boolean [not null, default: false]
+  created_at DateTime [default: `now()`, not null]
+  user users [not null]
+  discount discounts [not null]
 }
 
 Table orders {
@@ -120,6 +171,7 @@ Table orders {
   discount_amount Decimal [not null, default: 0]
   shipping_fee Decimal [not null, default: 0]
   payment_method String [not null]
+  is_hidden_by_user Boolean [not null, default: false]
   created_at DateTime [default: `now()`, not null]
   user users [not null]
   address addresses [not null]
@@ -203,11 +255,17 @@ Table revenue_backups {
   admin users [not null]
 }
 
+Ref: chat_messages.sender_id > users.id [delete: Cascade]
+
+Ref: chat_messages.receiver_id > users.id [delete: Cascade]
+
 Ref: addresses.user_id > users.id [delete: Cascade]
 
 Ref: categories.parent_id - categories.id [delete: Set Null]
 
 Ref: products.category_id > categories.id [delete: Set Null]
+
+Ref: products.discount_id > discounts.id [delete: Set Null]
 
 Ref: product_images.product_id > products.id [delete: Cascade]
 
@@ -216,6 +274,14 @@ Ref: product_skus.product_id > products.id [delete: Cascade]
 Ref: cart_items.user_id > users.id [delete: Cascade]
 
 Ref: cart_items.sku_id > product_skus.id [delete: Cascade]
+
+Ref: discount_products.discount_id > discounts.id [delete: Cascade]
+
+Ref: discount_products.product_id > products.id [delete: Cascade]
+
+Ref: user_vouchers.user_id > users.id [delete: Cascade]
+
+Ref: user_vouchers.discount_id > discounts.id [delete: Cascade]
 
 Ref: orders.user_id > users.id [delete: Restrict]
 

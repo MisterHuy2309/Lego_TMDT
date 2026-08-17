@@ -43,10 +43,10 @@ export class CartService {
     });
   }
 
-  // 2. LẤY CHI TIẾT GIỎ HÀNG (ĐÃ TỐI ƯU CÁCH TÍNH GIÁ & SELECT)
+  // 2. LẤY CHI TIẾT GIỎ HÀNG (TÍNH GIÁ ĐÃ GIẢM TỪ DISCOUNT)
   async getCart(userId: string) {
     if (!userId) {
-      return { items: [], subtotal: 0 };
+      return { items: [], subtotal: 0, original_subtotal: 0, total_discount: 0 };
     }
 
     const items = await this.prisma.cart_items.findMany({
@@ -61,6 +61,8 @@ export class CartService {
                 slug: true,
                 item_number: true,
                 base_price: true,
+                discount_id: true,
+                discount: true,
                 product_images: {
                   select: { image_url: true, is_primary: true },
                   take: 5,
@@ -74,13 +76,43 @@ export class CartService {
     });
 
     let subtotal = 0;
+    let originalSubtotal = 0;
+    const now = new Date();
 
     const formattedItems = items.map((item) => {
       const skuPrice = Number(item.sku?.price || 0);
       const basePrice = Number(item.sku?.product?.base_price || 0);
-      const finalPrice = skuPrice > 0 ? skuPrice : basePrice;
+      const originalPrice = skuPrice > 0 ? skuPrice : basePrice;
+
+      const discount = item.sku?.product?.discount;
+      let finalPrice = originalPrice;
+      let hasDiscount = false;
+      let discountLabel = '';
+
+      // Kiểm tra tính hợp lệ của mã giảm giá gắn trên sản phẩm
+      if (discount && discount.is_active !== false) {
+        const isStarted = !discount.start_date || new Date(discount.start_date) <= now;
+        const isNotExpired = !discount.end_date || new Date(discount.end_date) >= now;
+
+        if (isStarted && isNotExpired) {
+          hasDiscount = true;
+          const discountVal = Number(discount.discount_value || 0);
+
+          if (discount.discount_type === 'PERCENTAGE' || !discount.discount_type) {
+            finalPrice = Math.max(0, originalPrice - (originalPrice * discountVal) / 100);
+            discountLabel = `-${discountVal}%`;
+          } else {
+            finalPrice = Math.max(0, originalPrice - discountVal);
+            discountLabel = discountVal >= 1000 ? `-${(discountVal / 1000).toFixed(0)}K` : `-${discountVal}đ`;
+          }
+        }
+      }
+
       const itemSubtotal = finalPrice * item.quantity;
+      const itemOriginalSubtotal = originalPrice * item.quantity;
+
       subtotal += itemSubtotal;
+      originalSubtotal += itemOriginalSubtotal;
 
       const primaryImage =
         item.sku?.product?.product_images?.find((img) => img.is_primary)?.image_url ||
@@ -93,6 +125,10 @@ export class CartService {
         sku_code: item.sku?.sku_code || '',
         box_condition: item.sku?.box_condition || 'NEW',
         price: finalPrice,
+        original_price: originalPrice,
+        has_discount: hasDiscount,
+        discount_label: discountLabel,
+        discount_info: hasDiscount ? discount : null,
         quantity: item.quantity,
         stock_quantity: item.sku?.stock_quantity || 0,
         product_name: item.sku?.product?.name || 'Sản phẩm LEGO',
@@ -103,12 +139,21 @@ export class CartService {
         sku: {
           ...item.sku,
           price: finalPrice,
-          product: item.sku?.product,
+          original_price: originalPrice,
+          product: {
+            ...item.sku?.product,
+            discount: hasDiscount ? discount : null,
+          },
         },
       };
     });
 
-    return { items: formattedItems, subtotal };
+    return {
+      items: formattedItems,
+      subtotal,
+      original_subtotal: originalSubtotal,
+      total_discount: Math.max(0, originalSubtotal - subtotal),
+    };
   }
 
   // 3. CẬP NHẬT SỐ LƯỢNG MÓN HÀNG

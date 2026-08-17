@@ -4,6 +4,13 @@ import { AddToCartDto, CartItem, CreateOrderDto } from '@/types/cart.type';
 export const cartService = {
   // 1. Lấy giỏ hàng -> GET /api/v1/cart
   getCart: async (): Promise<CartItem[]> => {
+    if (typeof window !== 'undefined') {
+      const token = localStorage.getItem('access_token');
+      if (!token || token === 'undefined' || token === 'null' || token === '""') {
+        return [];
+      }
+    }
+
     try {
       const response = await api.get('/cart');
 
@@ -11,7 +18,10 @@ export const cartService = {
         return response.data.items;
       }
       return Array.isArray(response.data) ? response.data : [];
-    } catch (error) {
+    } catch (error: any) {
+      if (error.response?.status === 401) {
+        return [];
+      }
       console.error('Lỗi lấy giỏ hàng:', error);
       return [];
     }
